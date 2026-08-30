@@ -43,7 +43,7 @@ export default function JobRoleSessionsPage() {
   if (authLoading) return <div className="min-h-screen bg-slate-950 text-slate-400 flex items-center justify-center">Checking login...</div>;
   if (!user) return null;
 
-  const handleGenerateLink = async () => {
+  const handleGenerateLink = async (source: 'ai' | 'manual') => {
     setGenerating(true);
     setGeneratedLink(null);
     try {
@@ -51,18 +51,21 @@ export default function JobRoleSessionsPage() {
       const res = await fetch(`${API_URL}/sessions/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ job_role_id: id, candidate_id: candidateId }),
+        body: JSON.stringify({ job_role_id: id, candidate_id: candidateId, question_source: source }),
       });
-      if (!res.ok) throw new Error('Failed to create session');
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Failed to create session');
+      }
       const session = await res.json();
       setGeneratedLink(`${window.location.origin}/interview/${session.id}`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Failed to generate link.');
+      alert(err.message || 'Failed to generate link.');
     } finally {
       setGenerating(false);
     }
-  };
+};
 
   const handleCopy = () => {
     navigator.clipboard.writeText(generatedLink!);
@@ -83,13 +86,21 @@ export default function JobRoleSessionsPage() {
         </Link>
         <h1 className="text-2xl font-bold">Candidates</h1>
 
-        <button
-          onClick={handleGenerateLink}
-          disabled={generating}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 transition-colors text-white font-medium rounded-lg text-sm"
-        >
-          {generating ? 'Generating...' : '+ Generate Candidate Link'}
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => handleGenerateLink('ai')}
+            disabled={generating}
+            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 transition-colors text-white font-medium rounded-lg text-sm"
+          >
+            {generating ? 'Generating...' : '+ AI Interview Link'}
+          </button>
+          <Link
+            href={`/dashboard/job-roles/${id}/questions`}
+            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 transition-colors text-white font-medium rounded-lg text-sm"
+          >
+            + Create Custom Interview
+          </Link>
+        </div>
 
         {generatedLink && (
           <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-2">
