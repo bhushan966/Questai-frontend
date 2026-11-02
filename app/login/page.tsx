@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { Sparkles, Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -33,42 +34,62 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-8">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md space-y-6">
+        {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="text-2xl font-bold text-white">QuestAI</div>
-          <div className="text-sm text-slate-400">
-            {mode === 'login' ? 'Log in to your recruiter dashboard' : 'Create your company account'}
+          <div className="inline-flex w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-violet-500 items-center justify-center shadow-lg shadow-blue-500/25 mb-1">
+            <Sparkles className="w-6 h-6 text-white" />
           </div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+            QuestAI
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-400">
+            {mode === 'login'
+              ? 'Log in to your recruiter command center'
+              : 'Create your enterprise recruiter account'}
+          </p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+        {/* Card Form */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1.5 text-slate-300">Company email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-600"
-                placeholder="you@company.com"
-                required
-              />
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Work Email
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                  placeholder="recruiter@company.com"
+                  required
+                />
+              </div>
             </div>
+
             <div>
-              <label className="block text-sm font-medium mb-1.5 text-slate-300">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-600"
-                placeholder="••••••••"
-                required
-              />
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                  placeholder="••••••••••••"
+                  required
+                />
+              </div>
             </div>
 
             {error && (
-              <div className="text-sm text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">
+              <div className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-xl p-3">
                 {error}
               </div>
             )}
@@ -76,21 +97,46 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors text-white font-medium rounded-lg"
+              className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white font-semibold rounded-xl text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20"
             >
-              {loading ? 'Please wait...' : mode === 'login' ? 'Log in' : 'Sign up'}
+              {loading ? (
+                <span>Verifying credentials...</span>
+              ) : mode === 'login' ? (
+                <>
+                  <span>Sign In to Dashboard</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              ) : (
+                <>
+                  <span>Create Recruiter Account</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
 
-          <button
-            onClick={() => {
-              setMode(mode === 'login' ? 'signup' : 'login');
-              setError(null);
-            }}
-            className="w-full text-center text-sm text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            {mode === 'login' ? "Don't have an account? Sign up" : 'Already have an account? Log in'}
-          </button>
+          <div className="pt-2 border-t border-slate-800/80 text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === 'login' ? 'signup' : 'login');
+                setError(null);
+              }}
+              className="text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium"
+            >
+              {mode === 'login'
+                ? "Don't have an account? Sign up"
+                : 'Already have an account? Sign in'}
+            </button>
+          </div>
+        </div>
+
+        {/* Demo Hint */}
+        <div className="text-center">
+          <span className="text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+            <span>Enterprise Video & Conversational Screening</span>
+          </span>
         </div>
       </div>
     </div>

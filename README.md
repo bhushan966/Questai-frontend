@@ -1,36 +1,119 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# QuestAI — AI Video Interview & Assessment Platform
 
-## Getting Started
+QuestAI is a production-grade asynchronous video interviewing and automated candidate assessment platform. It empowers recruiting teams to create customized job roles, generate smart AI interview questions, invite candidates via shareable links, and evaluate recorded candidate answers with AI transcription, speed playback, and scoring scorecards.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## 🌟 Key Features
+
+### For Recruiters
+- **Job Role Management**: Create, edit, clone/duplicate, and delete job openings with specific skills and responsibilities.
+- **Question Generation**: Auto-generate AI questions or manually author custom questions with adjustable think time and answer duration.
+- **Flexible Interview Modes**:
+  - **Recorded AI Questions**: Structured one-way video interviews with AI voice reading questions aloud.
+  - **Custom Questions**: Recruiter-defined questions with bespoke prep and answer timers.
+  - **Conversational AI**: Dynamic, interactive multi-turn AI interviews.
+- **Review & Evaluation Studio**:
+  - Direct video playback from **Supabase Storage** with 1x, 1.25x, 1.5x, 2x speed controls.
+  - Speech-to-text transcripts with instant one-click copy.
+  - Recruiter evaluation scorecard (Technical, Communication, Problem Solving ratings + candidate hiring decisions: Shortlisted / Hold / Declined).
+
+### For Candidates
+- **Hardware Pre-Check**: Camera preview with live audio level meter and speaker chime verification.
+- **Warm-Up Practice Interview**:
+  - Completely isolated, unscored practice session with sample prompt.
+  - 15s preparation timer and 30s answer recording.
+  - **Post-Practice Video Review**: Instant playback of their practice recording to inspect lighting, audio volume, and framing before starting the real interview.
+  - Direct **"Proceed to Real Interview"** one-click transition.
+- **Candidate Studio Experience**:
+  - Teleprompter-style question display with AI voice reading.
+  - Countdown timers for Think Time and Answer Recording with quick-skip buttons.
+  - Visual recording ring (`idle`, `speaking`, `thinking`, `recording`).
+
+---
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────┐       ┌─────────────────────────────────┐
+│     Next.js Frontend (App Router)│ ────> │       FastAPI Backend API       │
+│  - /dashboard (Job Roles & Stats│       │  - /job-roles (CRUD & Gen)      │
+│  - /interview/[sessionId]       │       │  - /sessions (Submissions)      │
+│  - /dashboard/sessions/[id]     │       │  - Audio Transcription (Whisper)│
+└─────────────────────────────────┘       └─────────────────────────────────┘
+                 │                                         │
+                 │                                         ▼
+                 │                        ┌─────────────────────────────────┐
+                 └──────────────────────> │    Supabase Storage & Database  │
+                                          │  - Bucket: interview-videos     │
+                                          │  - PostgreSQL: Candidate DB     │
+                                          └─────────────────────────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 🚀 Getting Started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1. Prerequisites
+- Node.js 18+ (Node 20+ recommended)
+- Python 3.10+ (for FastAPI backend)
+- FFmpeg (installed and available in system PATH)
+- A Supabase project with an **`interview-videos`** storage bucket
 
-## Learn More
+### 2. Frontend Setup
 
-To learn more about Next.js, take a look at the following resources:
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+2. Configure environment variables in `.env.local`:
+   ```env
+   # Leave empty or set to /api for preview/development mode
+   # For production, point to your deployed FastAPI backend:
+   NEXT_PUBLIC_API_URL=https://your-backend-api.onrender.com
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+   # Supabase Configuration
+   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   ```
 
-## Deploy on Vercel
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000) to view the application.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+4. Build for production:
+   ```bash
+   npm run build
+   npm start
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## ⚙️ Backend Setup (FastAPI)
+
+1. Ensure the following environment variables are set in your backend `.env`:
+   ```env
+   DATABASE_URL=postgresql://user:password@host:5432/questai
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+   OPENAI_API_KEY=your-openai-or-gemini-key
+   ```
+
+2. Run backend database migrations / models.
+
+3. Start the FastAPI server:
+   ```bash
+   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+---
+
+## 📦 Deployment Checklist
+
+- [x] **Supabase Storage**: Bucket `interview-videos` is created with public read access.
+- [x] **FFmpeg**: Installed on the backend host (`apt-get install -y ffmpeg` on Debian/Ubuntu/Render).
+- [x] **Frontend Environment**: `NEXT_PUBLIC_API_URL` points to the live backend domain.
+- [x] **CORS**: Backend allows requests from your frontend domain (e.g. `https://your-app.vercel.app`).
