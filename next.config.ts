@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // Only use standalone if explicitly requested (e.g. Docker container), not on Vercel
+  ...(process.env.BUILD_STANDALONE === "true" ? { output: "standalone" } : {}),
   skipTrailingSlashRedirect: true,
   allowedDevOrigins: [
     "localhost:3000",
