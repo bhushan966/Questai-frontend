@@ -96,6 +96,7 @@ export default function ManageQuestionsPage() {
   useEffect(() => {
     if (!user || !id) return;
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user]);
 
   if (authLoading) {

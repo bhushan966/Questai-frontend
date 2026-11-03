@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "AI-powered video interview screening and candidate assessment platform",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function RootLayout({
   children,
 }: {
