@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import fixWebmDuration from 'fix-webm-duration';
 import { API_URL } from '@/lib/config';
+import { supabase } from '@/lib/supabase';
 import {
   Camera,
   Mic,
@@ -372,11 +373,18 @@ export default function InterviewPage() {
 
   // Initial Data Fetch
   useEffect(() => {
-    fetch(`${API_URL}/sessions/${sessionId}`)
-      .then((res) => {
-        if (!res.ok) throw new Error('Session not found');
-        return res.json();
-      })
+    const loadSessionData = async () => {
+      let res = await fetch(`${API_URL}/sessions/${sessionId}`).catch(() => null);
+      if ((!res || !res.ok) && API_URL !== '/api') {
+        res = await fetch(`/api/sessions/${sessionId}`).catch(() => null);
+      }
+      if (!res || !res.ok) {
+        throw new Error('Session not found');
+      }
+      return res.json();
+    };
+
+    loadSessionData()
       .then((sess) => {
         setSession(sess);
 
@@ -402,40 +410,48 @@ export default function InterviewPage() {
           });
 
         if (sess.mode === 'conversational') {
-          fetch(`${API_URL}/sessions/${sessionId}/start`, { method: 'POST' })
-            .then((res) => res.json())
-            .then((data) => {
-              setCurrentAiPrompt(data.message || 'Welcome to your conversational interview.');
-              setPhase('intro');
-            })
-            .catch(() => {
-              setCurrentAiPrompt('Welcome to your interview. Let us begin.');
-              setPhase('intro');
-            });
+          const startConversational = async () => {
+            let res: Response | null = null;
+            if (API_URL !== '/api') {
+              res = await fetch(`${API_URL}/sessions/${sessionId}/start`, { method: 'POST' }).catch(() => null);
+            }
+            if (!res || !res.ok) {
+              res = await fetch(`/api/sessions/${sessionId}/start`, { method: 'POST' }).catch(() => null);
+            }
+            if (res && res.ok) {
+              const data = await res.json().catch(() => null);
+              if (data?.message) return data.message;
+            }
+            return 'Welcome to your conversational interview. Let us begin.';
+          };
+
+          startConversational().then((msg) => {
+            setCurrentAiPrompt(msg);
+            setPhase('intro');
+          });
         } else {
-          fetch(`${API_URL}/sessions/${sessionId}/answers`)
-            .then((res) => (res.ok ? res.json() : []))
-            .then((data) => {
+          const fetchInterviewAnswers = async () => {
+            let res: Response | null = null;
+            if (API_URL !== '/api') {
+              res = await fetch(`${API_URL}/sessions/${sessionId}/answers`).catch(() => null);
+            }
+            if (!res || !res.ok) {
+              res = await fetch(`/api/sessions/${sessionId}/answers`).catch(() => null);
+            }
+            if (res && res.ok) {
+              const data = await res.json().catch(() => null);
               if (Array.isArray(data) && data.length > 0) {
-                const pending = data.filter((a: Answer) => a.status === 'pending');
-                setAnswers(pending.length > 0 ? pending : data);
-                setPhase('intro');
-              } else {
-                // Fallback default question if none found
-                setAnswers([
-                  {
-                    id: 'default-ans-1',
-                    question_id: 'q1',
-                    question_text: 'Introduce yourself and share your core experience and strengths.',
-                    think_seconds: 30,
-                    answer_seconds: 90,
-                    status: 'pending',
-                  },
-                ]);
-                setPhase('intro');
+                return data;
               }
-            })
-            .catch(() => {
+            }
+            return null;
+          };
+
+          fetchInterviewAnswers().then((data) => {
+            if (data && data.length > 0) {
+              const pending = data.filter((a: Answer) => a.status === 'pending');
+              setAnswers(pending.length > 0 ? pending : data);
+            } else {
               setAnswers([
                 {
                   id: 'default-ans-1',
@@ -446,8 +462,9 @@ export default function InterviewPage() {
                   status: 'pending',
                 },
               ]);
-              setPhase('intro');
-            });
+            }
+            setPhase('intro');
+          });
         }
       })
       .catch((err) => {
@@ -693,13 +710,59 @@ export default function InterviewPage() {
   }, [countdown, phase, isPractice]);
 
   const uploadAnswer = async (answerId: string, blob: Blob) => {
-    const formData = new FormData();
-    formData.append('file', blob, `${answerId}.webm`);
-    const res = await fetch(`${API_URL}/sessions/${sessionId}/answers/${answerId}/upload`, {
-      method: 'POST',
-      body: formData,
-    });
-    return res.ok;
+    let uploaded = false;
+
+    // 1. Direct Supabase storage upload if configured
+    try {
+      if (supabase && (supabase as any).storage) {
+        const filePath = `${sessionId}/${answerId}.webm`;
+        const { data: storageData, error: storageErr } = await supabase.storage
+          .from('interview-videos')
+          .upload(filePath, blob, {
+            contentType: 'video/webm',
+            upsert: true,
+          });
+        if (!storageErr && storageData) {
+          uploaded = true;
+        }
+      }
+    } catch {
+      // Storage upload optional/fallback
+    }
+
+    // 2. Try external API_URL if configured and not /api
+    if (API_URL !== '/api') {
+      try {
+        const formData = new FormData();
+        formData.append('file', blob, `${answerId}.webm`);
+        const res = await fetch(`${API_URL}/sessions/${sessionId}/answers/${answerId}/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          uploaded = true;
+        }
+      } catch {
+        // External endpoint unreachable, handled by local fallback
+      }
+    }
+
+    // 3. Guaranteed local Next.js upload endpoint fallback
+    try {
+      const localFormData = new FormData();
+      localFormData.append('file', blob, `${answerId}.webm`);
+      const localRes = await fetch(`/api/sessions/${sessionId}/answers/${answerId}/upload`, {
+        method: 'POST',
+        body: localFormData,
+      });
+      if (localRes.ok) {
+        uploaded = true;
+      }
+    } catch (localErr) {
+      console.warn(`Local upload notice for ${answerId}:`, localErr);
+    }
+
+    return uploaded;
   };
 
   const goToNextQuestion = async () => {
@@ -715,15 +778,43 @@ export default function InterviewPage() {
     setSubmitting(true);
     setUploadError(null);
 
+    let anyUploadFailed = false;
     for (const [answerId, blob] of Object.entries(recordedBlobs)) {
-      await uploadAnswer(answerId, blob);
+      const ok = await uploadAnswer(answerId, blob);
+      if (!ok) {
+        anyUploadFailed = true;
+      }
     }
 
     try {
-      await fetch(`${API_URL}/sessions/${sessionId}/submit`, { method: 'POST' });
-      setPhase('complete');
+      let submitRes: Response | null = null;
+      if (API_URL !== '/api') {
+        try {
+          submitRes = await fetch(`${API_URL}/sessions/${sessionId}/submit`, { method: 'POST' });
+        } catch {
+          submitRes = null;
+        }
+      }
+
+      if (!submitRes || !submitRes.ok) {
+        try {
+          submitRes = await fetch(`/api/sessions/${sessionId}/submit`, { method: 'POST' });
+        } catch {
+          submitRes = null;
+        }
+      }
+
+      if (!submitRes || !submitRes.ok) {
+        throw new Error('Backend session submission failed');
+      }
+
+      if (anyUploadFailed) {
+        setUploadError('One or more recordings could not be uploaded to the server. Please try submitting again.');
+      } else {
+        setPhase('complete');
+      }
     } catch {
-      setUploadError('Failed to complete final submission. Please click retry.');
+      setUploadError('Failed to complete final submission. Please check your backend connection and click retry.');
     } finally {
       setSubmitting(false);
     }
@@ -733,13 +824,34 @@ export default function InterviewPage() {
   const handleNextTurnConversational = async () => {
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_URL}/sessions/${sessionId}/turns`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcript: candidateTurnTranscript || 'Candidate spoken response recorded.',
-        }),
+      let res: Response | null = null;
+      const turnBody = JSON.stringify({
+        transcript: candidateTurnTranscript || 'Candidate spoken response recorded.',
       });
+
+      if (API_URL !== '/api') {
+        try {
+          res = await fetch(`${API_URL}/sessions/${sessionId}/turns`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: turnBody,
+          });
+        } catch {
+          res = null;
+        }
+      }
+
+      if (!res || !res.ok) {
+        res = await fetch(`/api/sessions/${sessionId}/turns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: turnBody,
+        }).catch(() => null);
+      }
+
+      if (!res || !res.ok) {
+        throw new Error('Failed to process conversation turn');
+      }
 
       const data = await res.json();
       setCandidateTurnTranscript('');
@@ -754,7 +866,7 @@ export default function InterviewPage() {
         });
       }
     } catch (err) {
-      console.error(err);
+      console.warn('Conversational turn warning:', err);
     } finally {
       setSubmitting(false);
     }

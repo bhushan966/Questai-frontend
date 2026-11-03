@@ -26,6 +26,8 @@ import {
   Settings,
   Pencil,
   Trash2,
+  User,
+  Link2,
 } from 'lucide-react';
 
 interface JobRole {
@@ -61,6 +63,7 @@ export default function JobRoleSessionsPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [candidateName, setCandidateName] = useState('');
   const [generatedLink, setGeneratedLink] = useState<{ url: string; modeTitle: string } | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -142,25 +145,109 @@ export default function JobRoleSessionsPage() {
     const questionSource = source === 'manual' ? 'manual' : 'ai';
     const interviewMode = source === 'conversational' ? 'conversational' : 'recorded';
     const candidateId = crypto.randomUUID();
+    const candidateNameVal = candidateName.trim() || undefined;
 
     try {
-      const res = await fetch(`${API_URL}/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          job_role_id: id,
-          candidate_id: candidateId,
-          question_source: questionSource,
-          mode: interviewMode,
-        }),
-      });
+      // 1. Ensure the job role is synchronized to the backend
+      if (role) {
+        await authedFetch(`${API_URL}/job-roles`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(role),
+        }).catch(() => null);
+      }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        throw new Error(err?.detail || 'Failed to create interview link');
+      // 2. If AI questions, ensure question generation was triggered on the backend
+      if (questionSource === 'ai') {
+        await authedFetch(`${API_URL}/job-roles/${id}/generate-questions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: role?.title || 'Professional Role',
+            skills_required: role?.skills_required || 'Core competencies',
+          }),
+        }).catch(() => null);
+      }
+
+      const payload = {
+        job_role_id: id,
+        candidate_id: candidateId,
+        candidate_name: candidateNameVal,
+        question_source: questionSource,
+        mode: interviewMode,
+      };
+
+      let res: Response | null = null;
+
+      if (API_URL !== '/api') {
+        try {
+          res = await fetch(`${API_URL}/sessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        } catch {
+          res = null;
+        }
+      }
+
+      // If backend reports no questions found, trigger question generation and retry once
+      if (res && !res.ok && res.status === 400) {
+        const errJson = await res.clone().json().catch(() => null);
+        if (errJson?.detail && errJson.detail.includes('questions found')) {
+          await authedFetch(`${API_URL}/job-roles/${id}/generate-questions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: role?.title || 'Professional Role',
+              skills_required: role?.skills_required || 'Core competencies',
+            }),
+          }).catch(() => null);
+
+          try {
+            res = await fetch(`${API_URL}/sessions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+          } catch {
+            res = null;
+          }
+        }
+      }
+
+      // Guaranteed fallback to internal Next.js API route if external backend failed or was unreachable
+      if (!res || !res.ok) {
+        res = await fetch(`/api/sessions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).catch(() => null);
+      }
+
+      if (!res || !res.ok) {
+        const err = res ? await res.json().catch(() => null) : null;
+        throw new Error(err?.detail || 'Failed to create interview link. Please try again.');
       }
 
       const session = await res.json();
+
+      // Mirror session to internal /api/sessions so candidate link always resolves
+      if (API_URL !== '/api') {
+        fetch(`/api/sessions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...session,
+            job_role_id: id,
+            candidate_id: candidateId,
+            candidate_name: candidateNameVal,
+            question_source: questionSource,
+            mode: interviewMode,
+          }),
+        }).catch(() => null);
+      }
+
       const modeTitle =
         source === 'conversational'
           ? 'Live Conversational AI'
@@ -175,8 +262,9 @@ export default function JobRoleSessionsPage() {
 
       // Refresh candidate list
       authedFetch(`${API_URL}/job-roles/${id}/sessions`)
-        .then((res) => (res.ok ? res.json() : []))
-        .then((data) => setSessions(Array.isArray(data) ? data : []));
+        .then((r) => (r.ok ? r.json() : []))
+        .then((data) => setSessions(Array.isArray(data) ? data : []))
+        .catch(() => null);
     } catch (err: any) {
       console.warn('Generate link error:', err);
       setLinkError(err.message || 'Failed to generate link. Please try again.');
@@ -350,37 +438,59 @@ export default function JobRoleSessionsPage() {
             )}
 
             {/* Quick Link Generators */}
-            <div className="pt-4 border-t border-slate-800/80 flex flex-wrap items-center gap-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 mr-1">
-                New Candidate Link:
-              </span>
+            <div id="generate-link" className="pt-5 border-t border-slate-800/80 space-y-3.5 scroll-mt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Link2 className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">
+                    Generate Candidate Interview Link
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400">
+                  Select a format below to create a direct link for this role
+                </span>
+              </div>
 
-              <button
-                onClick={() => handleGenerateLink('ai')}
-                disabled={generating}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>+ AI Interview Link</span>
-              </button>
+              {/* Optional candidate name */}
+              <div className="max-w-md relative">
+                <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={candidateName}
+                  onChange={(e) => setCandidateName(e.target.value)}
+                  placeholder="Candidate name or referral tag (optional)..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
 
-              <button
-                onClick={() => handleGenerateLink('manual')}
-                disabled={generating}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all"
-              >
-                <ListPlus className="w-3.5 h-3.5" />
-                <span>+ Custom Questions Link</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  onClick={() => handleGenerateLink('ai')}
+                  disabled={generating}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{generating ? 'Creating Link...' : '+ AI Interview Link'}</span>
+                </button>
 
-              <button
-                onClick={() => handleGenerateLink('conversational')}
-                disabled={generating}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all"
-              >
-                <Bot className="w-3.5 h-3.5" />
-                <span>+ Conversational AI Link</span>
-              </button>
+                <button
+                  onClick={() => handleGenerateLink('manual')}
+                  disabled={generating}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
+                >
+                  <ListPlus className="w-3.5 h-3.5" />
+                  <span>{generating ? 'Creating Link...' : '+ Custom Questions Link'}</span>
+                </button>
+
+                <button
+                  onClick={() => handleGenerateLink('conversational')}
+                  disabled={generating}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>{generating ? 'Creating Link...' : '+ Conversational AI Link'}</span>
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -1,9 +1,9 @@
 import { supabase } from '@/lib/supabase';
 
 export async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  // Defensive rewrite: Ensure any legacy or cached Render backend URLs redirect to local /api
+  // Only redirect defunct legacy demo URL if still lingering
   let resolvedUrl = url;
-  if (resolvedUrl.includes('onrender.com') || resolvedUrl.includes('questai-ko41')) {
+  if (resolvedUrl.includes('questai-ko41.onrender.com')) {
     try {
       const u = new URL(resolvedUrl);
       const cleanPath = u.pathname.startsWith('/api') ? u.pathname : `/api${u.pathname}`;
