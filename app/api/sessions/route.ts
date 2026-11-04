@@ -1,16 +1,72 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Session, Answer, persistMockStore } from '@/lib/mockStore';
 
+// Helper to clean up any duplicate ghost sessions
+function cleanDuplicateSessions(sessions: Session[]): Session[] {
+  const seenCandidateKeys = new Map<string, Session>();
+  const toKeep: Session[] = [];
+
+  for (const sess of sessions) {
+    const key = `${sess.job_role_id}__${sess.candidate_id || ''}__${(sess.candidate_name || '').toLowerCase()}`;
+    const existing = seenCandidateKeys.get(key);
+
+    if (!existing) {
+      seenCandidateKeys.set(key, sess);
+      toKeep.push(sess);
+    } else {
+      // If one is submitted and the other is not_started, keep the submitted one
+      if (sess.status === 'submitted' && existing.status !== 'submitted') {
+        const idx = toKeep.indexOf(existing);
+        if (idx !== -1) {
+          toKeep[idx] = sess;
+        }
+        seenCandidateKeys.set(key, sess);
+      }
+      // Otherwise skip the duplicate
+    }
+  }
+
+  return toKeep;
+}
+
 export async function GET() {
+  const cleaned = cleanDuplicateSessions(mockStore.sessions);
+  if (cleaned.length !== mockStore.sessions.length) {
+    mockStore.sessions = cleaned;
+    persistMockStore();
+  }
   return NextResponse.json(mockStore.sessions);
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { job_role_id, candidate_id, candidate_name, question_source, mode } = body;
+    const { id: requestedId, job_role_id, candidate_id, candidate_name, question_source, mode } = body;
 
-    const sessionId = `sess-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    // 1. If an existing session ID was requested, return it (prevents duplicate link generation)
+    if (requestedId) {
+      const existing = mockStore.sessions.find((s) => s.id === requestedId);
+      if (existing) {
+        if (candidate_name && !existing.candidate_name) existing.candidate_name = candidate_name;
+        persistMockStore();
+        return NextResponse.json(existing);
+      }
+    }
+
+    // 2. Prevent duplicate session creation for the same candidate in the same role within recent window
+    if (candidate_id && job_role_id) {
+      const existingByCandidate = mockStore.sessions.find(
+        (s) =>
+          s.job_role_id === job_role_id &&
+          s.candidate_id === candidate_id &&
+          Date.now() - new Date(s.created_at).getTime() < 10 * 60 * 1000
+      );
+      if (existingByCandidate) {
+        return NextResponse.json(existingByCandidate);
+      }
+    }
+
+    const sessionId = requestedId || `sess-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const newSession: Session = {
       id: sessionId,
       job_role_id,
@@ -72,4 +128,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ detail: 'Failed to create session' }, { status: 400 });
   }
 }
-

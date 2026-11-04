@@ -232,15 +232,15 @@ export default function JobRoleSessionsPage() {
 
       const session = await res.json();
 
-      // Mirror session to internal /api/sessions so candidate link always resolves
-      if (API_URL !== '/api') {
-        fetch(`/api/sessions`, {
+      // If created on external API, ensure same session ID is registered locally without duplicating
+      if (API_URL !== '/api' && session?.id) {
+        await fetch(`/api/sessions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            ...session,
+            id: session.id,
             job_role_id: id,
-            candidate_id: candidateId,
+            candidate_id: session.candidate_id || candidateId,
             candidate_name: candidateNameVal,
             question_source: questionSource,
             mode: interviewMode,

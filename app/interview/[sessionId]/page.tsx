@@ -11,31 +11,31 @@ import {
   MicOff,
   Video,
   VideoOff,
-  Volume2,
   CheckCircle2,
   Play,
   RotateCcw,
   Sparkles,
-  Bot,
   Square,
   ArrowRight,
-  SkipForward,
   AlertCircle,
   CheckCheck,
+  Loader2,
+  Volume2,
+  Bot,
+  SkipForward,
 } from 'lucide-react';
 
 type RealPhase =
   | 'loading'
   | 'intro'
-  | 'ready'
   | 'speaking'
   | 'thinking'
   | 'recording'
   | 'stopped'
+  | 'submitting'
   | 'complete';
 
 type PracticePhase =
-  | 'ready'
   | 'speaking'
   | 'thinking'
   | 'recording'
@@ -76,8 +76,6 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 /**
  * CameraFrame ensures video feed is always rendered and never blank.
- * It uses a callback ref + useEffect + onLoadedMetadata to guarantee
- * srcObject is attached and playing whenever the component mounts or updates.
  */
 function CameraFrame({
   stream,
@@ -102,19 +100,20 @@ function CameraFrame({
 }) {
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
-  const attachStream = useCallback((video: HTMLVideoElement | null) => {
-    if (!video) return;
-    videoElementRef.current = video;
-    if (stream) {
-      if (video.srcObject !== stream) {
-        video.srcObject = stream;
+  const attachStream = useCallback(
+    (video: HTMLVideoElement | null) => {
+      if (!video) return;
+      videoElementRef.current = video;
+      if (stream) {
+        if (video.srcObject !== stream) {
+          video.srcObject = stream;
+        }
+        video.muted = true;
+        video.play().catch(() => {});
       }
-      video.muted = true;
-      video.play().catch(() => {
-        // Autoplay policy fallback
-      });
-    }
-  }, [stream]);
+    },
+    [stream]
+  );
 
   useEffect(() => {
     if (videoElementRef.current && stream) {
@@ -184,6 +183,12 @@ function CameraFrame({
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/90 text-white text-[11px] font-bold tracking-wide animate-pulse">
             <span className="w-2 h-2 rounded-full bg-white" />
             <span>REC</span>
+          </div>
+        )}
+        {ring === 'speaking' && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white text-[11px] font-bold tracking-wide animate-pulse">
+            <Volume2 className="w-3 h-3 text-white" />
+            <span>AI ASKING</span>
           </div>
         )}
       </div>
@@ -261,14 +266,14 @@ export default function InterviewPage() {
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [countdown, setCountdown] = useState(0);
-  const [recordedBlobs, setRecordedBlobs] = useState<Record<string, Blob>>({});
+  const [uploadProgressStatus, setUploadProgressStatus] = useState<Record<string, 'uploading' | 'uploaded' | 'failed'>>({});
   const [submitting, setSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Dedicated Practice Mode state
   const [isPractice, setIsPractice] = useState(false);
-  const [practicePhase, setPracticePhase] = useState<PracticePhase>('ready');
+  const [practicePhase, setPracticePhase] = useState<PracticePhase>('speaking');
   const [practiceCountdown, setPracticeCountdown] = useState(0);
   const [practiceBlobUrl, setPracticeBlobUrl] = useState<string | null>(null);
 
@@ -293,12 +298,89 @@ export default function InterviewPage() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const micCheckFrameRef = useRef<number>(0);
+  const speechTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fast-reference maps to eliminate async stale closures and race conditions
+  const recordedBlobsRef = useRef<Map<string, Blob>>(new Map());
+  const uploadedAnswerIdsRef = useRef<Set<string>>(new Set());
 
   const isConversational = session?.mode === 'conversational';
   const currentAnswer = answers[currentIndex];
 
   const practiceQuestionText =
     'Tell us about yourself, your background, and why you are interested in this position.';
+
+  // Text-To-Speech helper: cleanly speaks the question aloud using browser speech synthesis
+  const speakText = useCallback((text: string, onDone: () => void) => {
+    if (speechTimerRef.current) {
+      clearTimeout(speechTimerRef.current);
+      speechTimerRef.current = null;
+    }
+
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      // Select natural English voice if available
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice =
+        voices.find(
+          (v) =>
+            (v.name.includes('Google') ||
+              v.name.includes('Natural') ||
+              v.name.includes('Samantha') ||
+              v.name.includes('Daniel') ||
+              v.name.includes('Karen')) &&
+            v.lang.startsWith('en')
+        ) || voices.find((v) => v.lang.startsWith('en'));
+
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+
+      let doneFired = false;
+      const complete = () => {
+        if (!doneFired) {
+          doneFired = true;
+          if (speechTimerRef.current) {
+            clearTimeout(speechTimerRef.current);
+            speechTimerRef.current = null;
+          }
+          onDone();
+        }
+      };
+
+      utterance.onend = complete;
+      utterance.onerror = complete;
+
+      // Maximum safeguard timeout based on word count
+      const safeMaxMs = Math.max(3000, text.length * 85);
+      speechTimerRef.current = setTimeout(complete, safeMaxMs);
+
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setTimeout(onDone, 2000);
+    }
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    if (speechTimerRef.current) {
+      clearTimeout(speechTimerRef.current);
+      speechTimerRef.current = null;
+    }
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
+
+  // Cleanup speech on unmount
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, [stopSpeaking]);
 
   // Camera & Mic Initialization - Runs once on mount
   useEffect(() => {
@@ -422,7 +504,7 @@ export default function InterviewPage() {
               const data = await res.json().catch(() => null);
               if (data?.message) return data.message;
             }
-            return 'Welcome to your conversational interview. Let us begin.';
+            return 'Welcome to your interactive interview assessment. Please review the question below and share your thoughts.';
           };
 
           startConversational().then((msg) => {
@@ -449,14 +531,21 @@ export default function InterviewPage() {
 
           fetchInterviewAnswers().then((data) => {
             if (data && data.length > 0) {
-              const pending = data.filter((a: Answer) => a.status === 'pending');
-              setAnswers(pending.length > 0 ? pending : data);
+              setAnswers(data);
             } else {
               setAnswers([
                 {
-                  id: 'default-ans-1',
+                  id: `ans-${sessionId}-1`,
                   question_id: 'q1',
                   question_text: 'Introduce yourself and share your core experience and strengths.',
+                  think_seconds: 30,
+                  answer_seconds: 90,
+                  status: 'pending',
+                },
+                {
+                  id: `ans-${sessionId}-2`,
+                  question_id: 'q2',
+                  question_text: 'Describe a challenging project problem you solved, your approach, and the final outcome.',
                   think_seconds: 30,
                   answer_seconds: 90,
                   status: 'pending',
@@ -473,26 +562,6 @@ export default function InterviewPage() {
         setPhase('intro');
       });
   }, [sessionId]);
-
-  // Read aloud helper using SpeechSynthesis
-  const speakText = useCallback((text: string, onDone: () => void) => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.95;
-      utterance.onend = onDone;
-      utterance.onerror = onDone;
-      window.speechSynthesis.speak(utterance);
-    } else {
-      setTimeout(onDone, 2000);
-    }
-  }, []);
-
-  const stopSpeaking = useCallback(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-  }, []);
 
   // Toggle Camera Track
   const handleToggleCamera = useCallback(() => {
@@ -520,18 +589,83 @@ export default function InterviewPage() {
     });
   }, []);
 
-  // -------------------------------------------------------------
-  // PRACTICE INTERVIEW WORKFLOW
-  // -------------------------------------------------------------
+  // =========================================================================
+  // RELIABLE BACKGROUND VIDEO UPLOAD
+  // =========================================================================
+  const uploadAnswer = async (answerId: string, blob: Blob): Promise<boolean> => {
+    setUploadProgressStatus((prev) => ({ ...prev, [answerId]: 'uploading' }));
+    let uploaded = false;
+
+    // 1. Direct Supabase storage upload if configured
+    try {
+      if (supabase && (supabase as any).storage) {
+        const filePath = `${sessionId}/${answerId}.webm`;
+        const { data: storageData, error: storageErr } = await supabase.storage
+          .from('interview-videos')
+          .upload(filePath, blob, {
+            contentType: 'video/webm',
+            upsert: true,
+          });
+        if (!storageErr && storageData) {
+          uploaded = true;
+        }
+      }
+    } catch {
+      // Storage upload fallback
+    }
+
+    // 2. Guaranteed local Next.js upload endpoint
+    try {
+      const localFormData = new FormData();
+      localFormData.append('file', blob, `${answerId}.webm`);
+      const localRes = await fetch(`/api/sessions/${sessionId}/answers/${answerId}/upload`, {
+        method: 'POST',
+        body: localFormData,
+      });
+      if (localRes.ok) {
+        uploaded = true;
+      }
+    } catch (localErr) {
+      console.warn(`Local upload for ${answerId}:`, localErr);
+    }
+
+    // 3. Try external API_URL if configured and not /api
+    if (API_URL !== '/api') {
+      try {
+        const formData = new FormData();
+        formData.append('file', blob, `${answerId}.webm`);
+        const res = await fetch(`${API_URL}/sessions/${sessionId}/answers/${answerId}/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          uploaded = true;
+        }
+      } catch {
+        // Handled by local endpoint
+      }
+    }
+
+    if (uploaded) {
+      uploadedAnswerIdsRef.current.add(answerId);
+      setUploadProgressStatus((prev) => ({ ...prev, [answerId]: 'uploaded' }));
+    } else {
+      setUploadProgressStatus((prev) => ({ ...prev, [answerId]: 'failed' }));
+    }
+
+    return uploaded;
+  };
+
+  // =========================================================================
+  // PRACTICE INTERVIEW WORKFLOW (Automatic TTS Reading -> Prep -> Recording)
+  // =========================================================================
   const startPracticeWorkflow = () => {
     stopSpeaking();
     setIsPractice(true);
-    setPracticePhase('ready');
     setPracticeBlobUrl(null);
-  };
-
-  const beginPracticeSpeaking = () => {
     setPracticePhase('speaking');
+
+    // Automatically speak the practice question aloud
     speakText(practiceQuestionText, () => {
       setPracticePhase('thinking');
       setPracticeCountdown(15);
@@ -563,11 +697,17 @@ export default function InterviewPage() {
       recorder.onstop = () => {
         const rawBlob = new Blob(chunksRef.current, { type: mimeType });
         const duration = Date.now() - recordingStartTime.current;
-        fixWebmDuration(rawBlob, duration, (fixedBlob: Blob) => {
-          const url = URL.createObjectURL(fixedBlob);
+        try {
+          fixWebmDuration(rawBlob, duration, (fixedBlob: Blob) => {
+            const url = URL.createObjectURL(fixedBlob || rawBlob);
+            setPracticeBlobUrl(url);
+            setPracticePhase('review');
+          });
+        } catch {
+          const url = URL.createObjectURL(rawBlob);
           setPracticeBlobUrl(url);
           setPracticePhase('review');
-        });
+        }
       };
 
       mediaRecorderRef.current = recorder;
@@ -604,37 +744,48 @@ export default function InterviewPage() {
     return () => clearTimeout(t);
   }, [practiceCountdown, practicePhase, isPractice]);
 
-  // Transition from Practice directly to Real Interview
+  // Transition from Practice directly to Real Interview Question 1
   const proceedToRealInterview = () => {
     stopSpeaking();
     setIsPractice(false);
-    setPracticePhase('ready');
     if (practiceBlobUrl) {
       URL.revokeObjectURL(practiceBlobUrl);
       setPracticeBlobUrl(null);
     }
-    // Direct candidate to Question 1 in ready phase
+    // Direct start to Question 1: AI begins speaking Question 1 immediately!
     setCurrentIndex(0);
-    setPhase('ready');
+    const firstQ = answers[0];
+    if (firstQ) {
+      setPhase('speaking');
+      speakText(firstQ.question_text, () => {
+        setPhase('thinking');
+        setCountdown(firstQ.think_seconds || 30);
+      });
+    } else {
+      setPhase('thinking');
+      setCountdown(30);
+    }
   };
 
-  // -------------------------------------------------------------
-  // REAL INTERVIEW WORKFLOW
-  // -------------------------------------------------------------
+  // =========================================================================
+  // REAL INTERVIEW WORKFLOW (Automatic TTS Reading -> Prep -> Recording)
+  // =========================================================================
   const startRealInterviewFromIntro = () => {
     stopSpeaking();
     setIsPractice(false);
     setCurrentIndex(0);
-    setPhase('ready');
-  };
 
-  const startRealThinking = () => {
-    if (!currentAnswer || cameraError) return;
-    setPhase('speaking');
-    speakText(currentAnswer.question_text, () => {
+    const firstQ = answers[0];
+    if (firstQ) {
+      setPhase('speaking');
+      speakText(firstQ.question_text, () => {
+        setPhase('thinking');
+        setCountdown(firstQ.think_seconds || 30);
+      });
+    } else {
       setPhase('thinking');
-      setCountdown(currentAnswer.think_seconds || 30);
-    });
+      setCountdown(30);
+    }
   };
 
   const skipRealSpeaking = () => {
@@ -659,15 +810,27 @@ export default function InterviewPage() {
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
+
       recorder.onstop = () => {
         const rawBlob = new Blob(chunksRef.current, { type: mimeType });
         const duration = Date.now() - recordingStartTime.current;
-        fixWebmDuration(rawBlob, duration, (fixedBlob: Blob) => {
+
+        const handleFinalBlob = (blobToSave: Blob) => {
           if (currentAnswer) {
-            setRecordedBlobs((prev) => ({ ...prev, [currentAnswer.id]: fixedBlob }));
+            recordedBlobsRef.current.set(currentAnswer.id, blobToSave);
             setPhase('stopped');
+            // Trigger instant progressive background upload
+            uploadAnswer(currentAnswer.id, blobToSave);
           }
-        });
+        };
+
+        try {
+          fixWebmDuration(rawBlob, duration, (fixedBlob: Blob) => {
+            handleFinalBlob(fixedBlob || rawBlob);
+          });
+        } catch {
+          handleFinalBlob(rawBlob);
+        }
       };
 
       mediaRecorderRef.current = recorder;
@@ -694,7 +857,7 @@ export default function InterviewPage() {
     stopRealRecordingRef.current = stopRealRecording;
   });
 
-  // Real countdown timer hook
+  // Real countdown timer
   useEffect(() => {
     if (isPractice) return;
     if (phase !== 'thinking' && phase !== 'recording') return;
@@ -709,112 +872,61 @@ export default function InterviewPage() {
     return () => clearTimeout(t);
   }, [countdown, phase, isPractice]);
 
-  const uploadAnswer = async (answerId: string, blob: Blob) => {
-    let uploaded = false;
-
-    // 1. Direct Supabase storage upload if configured
-    try {
-      if (supabase && (supabase as any).storage) {
-        const filePath = `${sessionId}/${answerId}.webm`;
-        const { data: storageData, error: storageErr } = await supabase.storage
-          .from('interview-videos')
-          .upload(filePath, blob, {
-            contentType: 'video/webm',
-            upsert: true,
-          });
-        if (!storageErr && storageData) {
-          uploaded = true;
-        }
-      }
-    } catch {
-      // Storage upload optional/fallback
-    }
-
-    // 2. Try external API_URL if configured and not /api
-    if (API_URL !== '/api') {
-      try {
-        const formData = new FormData();
-        formData.append('file', blob, `${answerId}.webm`);
-        const res = await fetch(`${API_URL}/sessions/${sessionId}/answers/${answerId}/upload`, {
-          method: 'POST',
-          body: formData,
-        });
-        if (res.ok) {
-          uploaded = true;
-        }
-      } catch {
-        // External endpoint unreachable, handled by local fallback
-      }
-    }
-
-    // 3. Guaranteed local Next.js upload endpoint fallback
-    try {
-      const localFormData = new FormData();
-      localFormData.append('file', blob, `${answerId}.webm`);
-      const localRes = await fetch(`/api/sessions/${sessionId}/answers/${answerId}/upload`, {
-        method: 'POST',
-        body: localFormData,
-      });
-      if (localRes.ok) {
-        uploaded = true;
-      }
-    } catch (localErr) {
-      console.warn(`Local upload notice for ${answerId}:`, localErr);
-    }
-
-    return uploaded;
-  };
-
-  const goToNextQuestion = async () => {
+  // Next Question auto-advances directly into speaking the next question
+  const goToNextQuestion = () => {
+    stopSpeaking();
     if (currentIndex + 1 < answers.length) {
-      setCurrentIndex((i) => i + 1);
-      setPhase('ready');
+      const nextIdx = currentIndex + 1;
+      setCurrentIndex(nextIdx);
+      const nextQ = answers[nextIdx];
+      setPhase('speaking');
+      speakText(nextQ.question_text, () => {
+        setPhase('thinking');
+        setCountdown(nextQ.think_seconds || 30);
+      });
     } else {
-      await submitAllAnswers();
+      submitAllAnswers();
     }
   };
 
   const submitAllAnswers = async () => {
+    stopSpeaking();
     setSubmitting(true);
     setUploadError(null);
 
-    let anyUploadFailed = false;
-    for (const [answerId, blob] of Object.entries(recordedBlobs)) {
-      const ok = await uploadAnswer(answerId, blob);
-      if (!ok) {
-        anyUploadFailed = true;
-      }
-    }
-
     try {
+      // 1. Ensure all answers recorded in ref are uploaded
+      const uploadPromises: Promise<boolean>[] = [];
+      for (const [ansId, blob] of recordedBlobsRef.current.entries()) {
+        if (!uploadedAnswerIdsRef.current.has(ansId)) {
+          uploadPromises.push(uploadAnswer(ansId, blob));
+        }
+      }
+
+      if (uploadPromises.length > 0) {
+        await Promise.all(uploadPromises);
+      }
+
+      // 2. Submit session to mark completion
       let submitRes: Response | null = null;
-      if (API_URL !== '/api') {
-        try {
-          submitRes = await fetch(`${API_URL}/sessions/${sessionId}/submit`, { method: 'POST' });
-        } catch {
-          submitRes = null;
-        }
+      try {
+        submitRes = await fetch(`/api/sessions/${sessionId}/submit`, { method: 'POST' });
+      } catch {
+        submitRes = null;
+      }
+
+      if ((!submitRes || !submitRes.ok) && API_URL !== '/api') {
+        submitRes = await fetch(`${API_URL}/sessions/${sessionId}/submit`, { method: 'POST' }).catch(() => null);
       }
 
       if (!submitRes || !submitRes.ok) {
-        try {
-          submitRes = await fetch(`/api/sessions/${sessionId}/submit`, { method: 'POST' });
-        } catch {
-          submitRes = null;
-        }
+        throw new Error('Failed to submit session to backend');
       }
 
-      if (!submitRes || !submitRes.ok) {
-        throw new Error('Backend session submission failed');
-      }
-
-      if (anyUploadFailed) {
-        setUploadError('One or more recordings could not be uploaded to the server. Please try submitting again.');
-      } else {
-        setPhase('complete');
-      }
-    } catch {
-      setUploadError('Failed to complete final submission. Please check your backend connection and click retry.');
+      setPhase('complete');
+    } catch (err: any) {
+      console.error('Final submission error:', err);
+      setUploadError(err?.message || 'Failed to complete final submission. Please check connection and click retry.');
     } finally {
       setSubmitting(false);
     }
@@ -822,11 +934,12 @@ export default function InterviewPage() {
 
   // Conversational Turn Handler
   const handleNextTurnConversational = async () => {
+    stopSpeaking();
     setSubmitting(true);
     try {
       let res: Response | null = null;
       const turnBody = JSON.stringify({
-        transcript: candidateTurnTranscript || 'Candidate spoken response recorded.',
+        transcript: candidateTurnTranscript || 'Candidate spoken response recorded on camera.',
       });
 
       if (API_URL !== '/api') {
@@ -860,6 +973,7 @@ export default function InterviewPage() {
         setPhase('complete');
       } else {
         setCurrentAiPrompt(data.message);
+        setPhase('speaking');
         speakText(data.message, () => {
           setPhase('thinking');
           setCountdown(20);
@@ -872,7 +986,7 @@ export default function InterviewPage() {
     }
   };
 
-  // Audio testing helpers for Intro
+  // Audio testing helpers for Intro Screen
   const testSpeakerChime = () => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -1017,7 +1131,7 @@ export default function InterviewPage() {
               </div>
             </div>
           ) : (
-            // Live Practice Steps: Ready, Speaking, Thinking, Recording
+            // Live Practice Steps: Speaking, Thinking, Recording
             <div className="space-y-4">
               <CameraFrame
                 stream={mediaStream}
@@ -1026,9 +1140,7 @@ export default function InterviewPage() {
                     ? 'recording'
                     : practicePhase === 'speaking'
                     ? 'speaking'
-                    : practicePhase === 'thinking'
-                    ? 'thinking'
-                    : 'idle'
+                    : 'thinking'
                 }
                 error={cameraError}
                 cameraOn={cameraOn}
@@ -1040,56 +1152,27 @@ export default function InterviewPage() {
 
               {/* Practice Question Card */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Bot className="w-3.5 h-3.5" />
-                    {practicePhase === 'speaking' ? 'AI Voice Prompt' : 'Practice Question'}
-                  </span>
-                  <button
-                    onClick={() => speakText(practiceQuestionText, () => {})}
-                    className="text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1 text-[11px]"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" />
-                    <span>Replay Audio</span>
-                  </button>
-                </div>
+                <span className="font-semibold text-purple-400 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                  <Bot className="w-3.5 h-3.5" />
+                  Practice Question
+                </span>
                 <p className="text-base sm:text-lg font-semibold text-white leading-relaxed">
                   {practiceQuestionText}
                 </p>
               </div>
 
-              {/* Practice Sub-Phase Controls */}
-              {practicePhase === 'ready' && (
-                <div className="space-y-3">
-                  <button
-                    onClick={beginPracticeSpeaking}
-                    className="w-full py-3.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-2xl text-base transition-all shadow-lg shadow-purple-500/20 flex items-center justify-center gap-2"
-                  >
-                    <Play className="w-5 h-5 fill-white" />
-                    <span>Begin Practice (15s Prep, 30s Recording)</span>
-                  </button>
-                  <button
-                    onClick={proceedToRealInterview}
-                    className="w-full py-2.5 text-xs text-slate-400 hover:text-slate-200 text-center transition-colors flex items-center justify-center gap-1"
-                  >
-                    <span>Skip Practice and Start Real Interview</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )}
-
               {practicePhase === 'speaking' && (
                 <div className="p-4 bg-purple-950/30 border border-purple-900/60 rounded-2xl flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-purple-300">
-                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+                  <div className="flex items-center gap-2.5 text-xs font-semibold text-purple-300">
+                    <div className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-ping" />
                     <span>AI is reading the practice question...</span>
                   </div>
                   <button
                     onClick={skipPracticeSpeaking}
-                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors"
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
                   >
                     <SkipForward className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Start Prep (15s)</span>
+                    <span>Skip to Prep</span>
                   </button>
                 </div>
               )}
@@ -1106,9 +1189,9 @@ export default function InterviewPage() {
                     <div className="text-3xl font-bold text-amber-300 tabular-nums">{practiceCountdown}s</div>
                     <button
                       onClick={skipPracticeThinking}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-colors"
+                      className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
                     >
-                      <span>Speak Now</span>
+                      <span>Start Answering Now</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -1159,6 +1242,13 @@ export default function InterviewPage() {
               {jobRole?.description ||
                 'Ensure your camera and microphone are properly framed and tested before entering the interview.'}
             </p>
+            <div className="pt-2 flex items-center gap-4 text-xs text-slate-400">
+              <span>{answers.length} Question{answers.length > 1 ? 's' : ''}</span>
+              <span>•</span>
+              <span>AI Voice Prompts</span>
+              <span>•</span>
+              <span>Video Response</span>
+            </div>
           </div>
 
           {loadError && (
@@ -1168,7 +1258,7 @@ export default function InterviewPage() {
             </div>
           )}
 
-          {/* Camera Frame Preview - Always guaranteed active */}
+          {/* Camera Frame Preview */}
           <CameraFrame
             stream={mediaStream}
             ring="idle"
@@ -1219,7 +1309,7 @@ export default function InterviewPage() {
             )}
           </div>
 
-          {/* Action CTAs: Practice Interview OR Real Interview */}
+          {/* Action CTAs: Start Interview Directly OR Practice Question */}
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <button
               onClick={startPracticeWorkflow}
@@ -1233,8 +1323,9 @@ export default function InterviewPage() {
             <button
               onClick={startRealInterviewFromIntro}
               disabled={!!cameraError}
-              className="flex-1 w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-semibold rounded-xl text-sm sm:text-base transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+              className="flex-1 w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-semibold rounded-xl text-sm sm:text-base transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
             >
+              <Play className="w-4 h-4 fill-white" />
               <span>Start Real Interview</span>
               <ArrowRight className="w-4 h-4" />
             </button>
@@ -1254,10 +1345,13 @@ export default function InterviewPage() {
           </div>
           <div className="space-y-1">
             <h2 className="text-2xl font-bold text-white">Interview Complete!</h2>
-            <p className="text-sm text-slate-400 max-w-md mx-auto">
-              Your video recordings and answers have been securely uploaded to QuestAI. The hiring team will evaluate your assessment shortly.
+            <p className="text-sm text-slate-300 max-w-md mx-auto">
+              Your video recordings and answers have been securely submitted to the hiring team for evaluation.
             </p>
           </div>
+
+
+
           <div className="pt-4 border-t border-slate-800 text-xs text-slate-500">
             You may now safely close this window.
           </div>
@@ -1266,7 +1360,7 @@ export default function InterviewPage() {
     );
   }
 
-  // 5. LIVE REAL INTERVIEW STUDIO
+  // 5. LIVE REAL INTERVIEW STUDIO (Speaking, Thinking, Recording, Stopped)
   return (
     <Shell>
       <div className="space-y-5">
@@ -1278,7 +1372,7 @@ export default function InterviewPage() {
           <span className="text-blue-400">{jobRole?.title || 'QuestAI'}</span>
         </div>
 
-        {/* Live Video Camera Frame with persistent stream */}
+        {/* Live Video Camera Frame */}
         <CameraFrame
           stream={mediaStream}
           ring={
@@ -1298,63 +1392,38 @@ export default function InterviewPage() {
           label="REAL INTERVIEW"
         />
 
-        {/* Eye-line teleprompter question banner */}
+        {/* Clear eye-level Question Card */}
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
               <Bot className="w-3.5 h-3.5" />
-              {phase === 'speaking' ? 'AI is asking the question...' : 'Current Question'}
+              {isConversational ? 'AI Interview Prompt' : `Question ${currentIndex + 1}`}
             </span>
-            <button
-              onClick={() =>
-                speakText(
-                  isConversational ? currentAiPrompt : currentAnswer?.question_text || '',
-                  () => {}
-                )
-              }
-              className="text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1 text-[11px]"
-            >
-              <Volume2 className="w-3.5 h-3.5" />
-              <span>Replay Voice</span>
-            </button>
+            <span className="text-[11px] text-slate-500">
+              {phase === 'speaking'
+                ? 'AI is asking...'
+                : phase === 'thinking'
+                ? 'Preparation Phase'
+                : phase === 'recording'
+                ? 'Recording in Progress'
+                : 'Answer Finished'}
+            </span>
           </div>
           <p className="text-base sm:text-lg font-semibold text-white leading-relaxed">
             {isConversational ? currentAiPrompt : currentAnswer?.question_text}
           </p>
         </div>
 
-        {/* Real Interview Phase Action Panels */}
-        {phase === 'ready' && (
-          <div className="space-y-3">
-            <button
-              onClick={startRealThinking}
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-2xl text-base transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
-            >
-              <Play className="w-5 h-5 fill-white" />
-              <span>I'm Ready - Ask Question {currentIndex + 1}</span>
-            </button>
-
-            {currentIndex === 0 && (
-              <button
-                onClick={startPracticeWorkflow}
-                className="w-full py-2 text-xs text-slate-400 hover:text-slate-200 text-center transition-colors flex items-center justify-center gap-1.5"
-              >
-                <RotateCcw className="w-3 h-3 text-purple-400" />
-                <span>Need a warm-up? Try a quick practice question first</span>
-              </button>
-            )}
-          </div>
-        )}
-
+        {/* SPEAKING: AI speaks the question aloud automatically when question starts */}
         {phase === 'speaking' && (
-          <div className="p-4 bg-blue-950/30 border border-blue-900/60 rounded-2xl flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-semibold text-blue-300">
-              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-              <span>Listen carefully — think time will begin shortly</span>
+          <div className="p-4 bg-blue-950/30 border border-blue-900/60 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
+            <div className="flex items-center gap-2.5 text-xs font-semibold text-blue-300">
+              <div className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping" />
+              <span>AI is reading the question to you...</span>
             </div>
             <button
               onClick={skipRealSpeaking}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1 transition-colors"
+              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
             >
               <SkipForward className="w-3.5 h-3.5 text-blue-400" />
               <span>Skip Voice & Prep</span>
@@ -1362,67 +1431,83 @@ export default function InterviewPage() {
           </div>
         )}
 
+        {/* THINKING / PREP TIME: Auto-starts after speech ends */}
         {phase === 'thinking' && (
-          <div className="bg-amber-950/30 border border-amber-900/60 rounded-2xl p-4 flex items-center justify-between">
-            <div className="space-y-0.5">
+          <div className="bg-amber-950/30 border border-amber-900/60 rounded-2xl p-4 sm:p-5 flex items-center justify-between animate-in fade-in duration-200">
+            <div className="space-y-1">
               <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
                 Think Time
               </span>
-              <p className="text-xs text-slate-400">Collect your thoughts. Recording starts automatically.</p>
+              <p className="text-xs text-slate-300">
+                Collect your thoughts. Recording will start automatically when timer ends.
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <div className="text-3xl font-bold text-amber-300 tabular-nums">{countdown}s</div>
               <button
                 onClick={skipRealThinking}
-                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-colors"
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-colors shadow-md"
               >
-                <span>Speak Now</span>
-                <ArrowRight className="w-3.5 h-3.5" />
+                <span>Start Answering Now</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           </div>
         )}
 
+        {/* RECORDING: Live candidate answer recording */}
         {phase === 'recording' && (
-          <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-4 space-y-3">
+          <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-4 sm:p-5 space-y-3 animate-in fade-in duration-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
                 <span>Recording Answer</span>
               </div>
-              <div className="text-2xl font-bold text-red-300 tabular-nums">{countdown}s</div>
+              <div className="text-2xl font-bold text-red-300 tabular-nums">{countdown}s remaining</div>
             </div>
 
             <button
               onClick={stopRealRecording}
-              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold rounded-xl text-xs sm:text-sm transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
             >
-              <Square className="w-3.5 h-3.5 fill-red-400 text-red-400" />
-              <span>Finished Speaking (Stop Recording)</span>
+              <Square className="w-4 h-4 fill-white" />
+              <span>Finish Answer (Stop Recording)</span>
             </button>
           </div>
         )}
 
+        {/* STOPPED: Answer finished, automatic progressive upload, clean next step */}
         {phase === 'stopped' && (
-          <div className="space-y-3">
-            <div className="p-3 bg-emerald-950/30 border border-emerald-900/60 rounded-xl text-xs font-semibold text-emerald-400 flex items-center justify-center gap-2">
-              <CheckCircle2 className="w-4 h-4" />
-              <span>Answer recorded successfully</span>
+          <div className="space-y-3 animate-in fade-in duration-200">
+            <div className="p-3.5 bg-emerald-950/40 border border-emerald-900/80 rounded-xl text-xs font-semibold text-emerald-300 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Question {currentIndex + 1} response captured</span>
+              </span>
+              <span className="text-[11px] text-emerald-400 font-normal">
+                {uploadProgressStatus[currentAnswer?.id || ''] === 'uploading'
+                  ? 'Saving to server...'
+                  : 'Ready'}
+              </span>
             </div>
 
             {uploadError && (
-              <div className="p-3 bg-red-950/40 border border-red-900 rounded-xl text-xs text-red-300">
-                {uploadError}
+              <div className="p-3 bg-red-950/40 border border-red-900 rounded-xl text-xs text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{uploadError}</span>
               </div>
             )}
 
             <button
               onClick={isConversational ? handleNextTurnConversational : goToNextQuestion}
               disabled={submitting}
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-semibold rounded-2xl text-base transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-semibold rounded-2xl text-base transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
             >
               {submitting ? (
-                <span>Submitting answer...</span>
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Submitting assessment...</span>
+                </>
               ) : isConversational ? (
                 <>
                   <span>Next AI Turn</span>
@@ -1435,7 +1520,7 @@ export default function InterviewPage() {
                 </>
               ) : (
                 <>
-                  <span>Finish & Submit Interview</span>
+                  <span>Submit Final Assessment</span>
                   <CheckCircle2 className="w-5 h-5" />
                 </>
               )}

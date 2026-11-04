@@ -407,23 +407,37 @@ export default function SessionDetailPage() {
 
                       {/* Video Player */}
                       {a.video_url ? (
-                        <div className="rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video relative group">
+                        <div className="rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video relative group shadow-lg">
                           <video
                             ref={(el) => {
                               videoRefs.current[a.id] = el;
                             }}
+                            src={a.video_url}
                             controls
+                            playsInline
+                            preload="metadata"
                             className="w-full h-full object-cover"
                           >
                             <source src={a.video_url} type="video/webm" />
                             Your browser does not support the video tag.
                           </video>
+                          <div className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-700 text-[11px] text-slate-300 pointer-events-auto">
+                            <a
+                              href={a.video_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:text-blue-400 inline-flex items-center gap-1 font-medium transition-colors"
+                            >
+                              <span>Open Video</span>
+                              <span className="text-[10px]">↗</span>
+                            </a>
+                          </div>
                         </div>
                       ) : (
                         <div className="aspect-video rounded-xl bg-slate-950/70 border border-dashed border-slate-800 flex flex-col items-center justify-center p-6 text-center space-y-2">
                           <span className="text-2xl">📹</span>
                           <span className="text-xs text-slate-400">
-                            Video answer was recorded and submitted (sample / storage placeholder).
+                            Candidate answer recording processing or completed.
                           </span>
                         </div>
                       )}
