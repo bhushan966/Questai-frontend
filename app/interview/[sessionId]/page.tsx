@@ -596,6 +596,8 @@ export default function InterviewPage() {
     setUploadProgressStatus((prev) => ({ ...prev, [answerId]: 'uploading' }));
     let uploaded = false;
 
+    let supabaseVideoUrl: string | null = null;
+
     // 1. Direct Supabase storage upload if configured
     try {
       if (supabase && (supabase as any).storage) {
@@ -606,18 +608,30 @@ export default function InterviewPage() {
             contentType: 'video/webm',
             upsert: true,
           });
+
         if (!storageErr && storageData) {
-          uploaded = true;
+          const { data: pubData } = supabase.storage
+            .from('interview-videos')
+            .getPublicUrl(filePath);
+          if (pubData?.publicUrl) {
+            supabaseVideoUrl = pubData.publicUrl;
+            uploaded = true;
+          }
+        } else if (storageErr) {
+          console.warn('Notice from Supabase Storage:', storageErr.message || storageErr);
         }
       }
-    } catch {
-      // Storage upload fallback
+    } catch (storageException) {
+      console.warn('Supabase storage upload fallback:', storageException);
     }
 
     // 2. Guaranteed local Next.js upload endpoint
     try {
       const localFormData = new FormData();
       localFormData.append('file', blob, `${answerId}.webm`);
+      if (supabaseVideoUrl) {
+        localFormData.append('video_url', supabaseVideoUrl);
+      }
       const localRes = await fetch(`/api/sessions/${sessionId}/answers/${answerId}/upload`, {
         method: 'POST',
         body: localFormData,
@@ -634,6 +648,9 @@ export default function InterviewPage() {
       try {
         const formData = new FormData();
         formData.append('file', blob, `${answerId}.webm`);
+        if (supabaseVideoUrl) {
+          formData.append('video_url', supabaseVideoUrl);
+        }
         const res = await fetch(`${API_URL}/sessions/${sessionId}/answers/${answerId}/upload`, {
           method: 'POST',
           body: formData,

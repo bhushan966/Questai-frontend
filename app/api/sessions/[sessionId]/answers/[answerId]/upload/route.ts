@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
+import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
 
@@ -49,8 +50,11 @@ export async function POST(
   try {
     const formData = await request.formData();
     const file = formData.get('file');
+    const clientProvidedVideoUrl = formData.get('video_url');
 
-    const videoStreamingUrl = `/api/sessions/${sessionId}/answers/${answerId}/video`;
+    let finalVideoUrl = typeof clientProvidedVideoUrl === 'string' && clientProvidedVideoUrl.startsWith('http')
+      ? clientProvidedVideoUrl
+      : `/api/sessions/${sessionId}/answers/${answerId}/video`;
 
     if (file && typeof file === 'object' && 'arrayBuffer' in file) {
       try {
@@ -70,6 +74,35 @@ export async function POST(
         }
         const filePath = path.join(uploadsDir, `${sessionId}-${answerId}.webm`);
         fs.writeFileSync(filePath, buffer);
+
+        // 3. Attempt server-side Supabase storage upload if configured
+        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        if (sbUrl && sbKey && !sbUrl.includes('placeholder')) {
+          try {
+            const sbAdmin = createClient(sbUrl, sbKey);
+            const storagePath = `${sessionId}/${answerId}.webm`;
+            const { error: sbErr } = await sbAdmin.storage
+              .from('interview-videos')
+              .upload(storagePath, buffer, {
+                contentType: 'video/webm',
+                upsert: true,
+              });
+
+            if (!sbErr) {
+              const { data: pubData } = sbAdmin.storage
+                .from('interview-videos')
+                .getPublicUrl(storagePath);
+              if (pubData?.publicUrl) {
+                finalVideoUrl = pubData.publicUrl;
+              }
+            } else {
+              console.warn('Notice from Supabase Storage server upload:', sbErr.message || sbErr);
+            }
+          } catch (sbEx) {
+            console.warn('Supabase Storage server exception:', sbEx);
+          }
+        }
       } catch (fileErr) {
         console.warn('Notice writing video buffer:', fileErr);
       }
@@ -77,7 +110,7 @@ export async function POST(
       answer.transcript = `[Candidate Verbal & Video Response Recorded]. Candidate addressed the question directly on camera with a structured response.`;
     }
 
-    answer.video_url = videoStreamingUrl;
+    answer.video_url = finalVideoUrl;
     answer.status = 'completed';
     answer.submitted_at = new Date().toISOString();
 
@@ -85,7 +118,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       answer_id: answerId,
-      video_url: videoStreamingUrl,
+      video_url: finalVideoUrl,
     });
   } catch (err: any) {
     console.error('Upload processing error:', err);
