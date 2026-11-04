@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import { mockStore, JobRole, persistMockStore } from '@/lib/mockStore';
 
 export async function GET() {
-  return NextResponse.json(mockStore.jobRoles);
+  const deletedSet = new Set(mockStore.deletedRoleIds || []);
+  const active = mockStore.jobRoles.filter((r) => !deletedSet.has(r.id));
+  return NextResponse.json(active);
 }
 
 export async function POST(request: Request) {
@@ -16,6 +18,11 @@ export async function POST(request: Request) {
       created_at: body.created_at || new Date().toISOString(),
     };
     
+    // If it was marked deleted previously, unmark it
+    if (mockStore.deletedRoleIds) {
+      mockStore.deletedRoleIds = mockStore.deletedRoleIds.filter((id) => id !== newRole.id);
+    }
+
     // Check if role already exists in store by id
     const existingIndex = mockStore.jobRoles.findIndex((r) => r.id === newRole.id);
     if (existingIndex >= 0) {

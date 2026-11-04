@@ -38,7 +38,7 @@ export function DeleteJobRoleModal({
         throw new Error(data?.detail || 'Failed to delete job role');
       }
 
-      // 2. Remove from localStorage
+      // 2. Remove from localStorage saved roles & record in deleted roles tombstone
       if (typeof window !== 'undefined') {
         try {
           const stored = localStorage.getItem('questai_saved_roles');
@@ -46,6 +46,14 @@ export function DeleteJobRoleModal({
             const list = JSON.parse(stored);
             const filtered = list.filter((r: { id: string }) => r.id !== role.id);
             localStorage.setItem('questai_saved_roles', JSON.stringify(filtered));
+          }
+
+          // Persistent tombstone: never resuscitate deleted roles on Vercel cold starts
+          const deletedStored = localStorage.getItem('questai_deleted_roles');
+          const deletedList: string[] = deletedStored ? JSON.parse(deletedStored) : [];
+          if (!deletedList.includes(role.id)) {
+            deletedList.push(role.id);
+            localStorage.setItem('questai_deleted_roles', JSON.stringify(deletedList));
           }
         } catch {
           // ignore

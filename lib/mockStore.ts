@@ -68,6 +68,7 @@ declare global {
     sessions: Session[];
     answers: Answer[];
     turns: ConversationTurn[];
+    deletedRoleIds: string[];
   } | undefined;
 }
 
@@ -246,18 +247,25 @@ if (!globalThis.__questai_mock_data__) {
     sessions: initialSessions,
     answers: initialAnswers,
     turns: initialTurns,
+    deletedRoleIds: [] as string[],
   };
 
   try {
     const DATA_FILE = '/tmp/questai_data.json';
     if (fs.existsSync(DATA_FILE)) {
       const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
+      const savedDeleted: string[] = Array.isArray(saved.deletedRoleIds) ? saved.deletedRoleIds : [];
+      const savedRoles: JobRole[] = Array.isArray(saved.jobRoles) ? saved.jobRoles : initialStore.jobRoles;
+      // Filter out any roles that were deleted
+      const activeRoles = savedRoles.filter((r) => !savedDeleted.includes(r.id));
+
       globalThis.__questai_mock_data__ = {
-        jobRoles: Array.isArray(saved.jobRoles) ? saved.jobRoles : initialStore.jobRoles,
+        jobRoles: activeRoles,
         questions: Array.isArray(saved.questions) ? saved.questions : initialStore.questions,
         sessions: Array.isArray(saved.sessions) ? saved.sessions : initialStore.sessions,
         answers: Array.isArray(saved.answers) ? saved.answers : initialStore.answers,
         turns: Array.isArray(saved.turns) ? saved.turns : initialStore.turns,
+        deletedRoleIds: savedDeleted,
       };
     } else {
       globalThis.__questai_mock_data__ = initialStore;
@@ -276,6 +284,17 @@ export function persistMockStore() {
   } catch {
     // ignore
   }
+}
+
+export function markRoleDeleted(roleId: string) {
+  if (!globalThis.__questai_mock_data__) return;
+  if (!globalThis.__questai_mock_data__.deletedRoleIds.includes(roleId)) {
+    globalThis.__questai_mock_data__.deletedRoleIds.push(roleId);
+  }
+  globalThis.__questai_mock_data__.jobRoles = globalThis.__questai_mock_data__.jobRoles.filter(
+    (r) => r.id !== roleId
+  );
+  persistMockStore();
 }
 
 export const mockStore = globalThis.__questai_mock_data__!;

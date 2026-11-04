@@ -8,6 +8,7 @@ import { API_URL } from '@/lib/config';
 import { DashboardNav } from '@/components/DashboardNav';
 import { EditJobRoleModal } from '@/components/EditJobRoleModal';
 import { DeleteJobRoleModal } from '@/components/DeleteJobRoleModal';
+import { SupabaseDiagnosticBanner } from '@/components/SupabaseDiagnosticBanner';
 import {
   Briefcase,
   CheckCircle2,
@@ -59,13 +60,19 @@ export default function DashboardPage() {
     let isMounted = true;
 
     async function loadDashboard() {
-      // 1. Instantly read locally saved roles for immediate UI feedback
+      // 1. Instantly read locally saved roles and deleted tombstones
       let localRoles: JobRole[] = [];
+      let deletedRoleIds: string[] = [];
+
       if (typeof window !== 'undefined') {
         try {
+          const deletedStored = localStorage.getItem('questai_deleted_roles');
+          if (deletedStored) deletedRoleIds = JSON.parse(deletedStored);
+
           const stored = localStorage.getItem('questai_saved_roles');
           if (stored) {
-            localRoles = JSON.parse(stored);
+            const parsed = JSON.parse(stored);
+            localRoles = parsed.filter((r: JobRole) => !deletedRoleIds.includes(r.id));
             if (isMounted && localRoles.length > 0) {
               setJobRoles(localRoles);
             }
@@ -87,11 +94,15 @@ export default function DashboardPage() {
         }
 
         // Merge: locally created roles first, then any API roles not already present
+        // STRICT RULE: Never add any role that has been deleted!
         const mergedMap = new Map<string, JobRole>();
-        localRoles.forEach((r) => mergedMap.set(r.id, r));
+        localRoles
+          .filter((r) => !deletedRoleIds.includes(r.id))
+          .forEach((r) => mergedMap.set(r.id, r));
+
         if (Array.isArray(apiRoles)) {
           apiRoles.forEach((r) => {
-            if (!mergedMap.has(r.id)) {
+            if (!mergedMap.has(r.id) && !deletedRoleIds.includes(r.id)) {
               mergedMap.set(r.id, r);
             }
           });
@@ -195,6 +206,9 @@ export default function DashboardPage() {
       <DashboardNav activeTab="roles" />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Supabase Cloud Connection & Storage Diagnostic Status */}
+        <SupabaseDiagnosticBanner />
+
         {/* Hero Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 p-6 sm:p-8 rounded-2xl border border-slate-800 shadow-xl">
           <div className="space-y-1.5">

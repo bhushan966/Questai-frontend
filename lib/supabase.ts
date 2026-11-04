@@ -1,7 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  (typeof window === 'undefined' ? process.env.SUPABASE_URL : undefined);
+
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  (typeof window === 'undefined'
+    ? process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+    : undefined);
 
 const isConfigured = Boolean(
   supabaseUrl &&
@@ -135,8 +142,24 @@ function createMockSupabaseClient() {
         };
       },
     },
+    storage: {
+      from() {
+        return {
+          upload: async () => {
+            console.warn('[Supabase Mock] Supabase credentials not configured. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to Vercel/environment to enable cloud video storage.');
+            return { data: null, error: new Error('Supabase client is not configured with valid credentials') };
+          },
+          getPublicUrl: () => {
+            return { data: { publicUrl: '' } };
+          },
+          list: async () => ({ data: [], error: null }),
+        };
+      },
+    },
   } as any;
 }
+
+export const isSupabaseConfigured = isConfigured;
 
 export const supabase = isConfigured
   ? createClient(supabaseUrl!, supabaseAnonKey!)

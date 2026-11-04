@@ -56,6 +56,8 @@ export async function POST(
       ? clientProvidedVideoUrl
       : `/api/sessions/${sessionId}/answers/${answerId}/video`;
 
+    let supabaseUploaded = false;
+
     if (file && typeof file === 'object' && 'arrayBuffer' in file) {
       try {
         const arrayBuffer = await (file as Blob).arrayBuffer();
@@ -67,44 +69,71 @@ export async function POST(
         }
         (globalThis as any).__questai_video_cache__.set(`${sessionId}-${answerId}`, buffer);
 
-        // 2. Persist to disk in public/uploads/videos
-        const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'videos');
-        if (!fs.existsSync(uploadsDir)) {
-          fs.mkdirSync(uploadsDir, { recursive: true });
-        }
-        const filePath = path.join(uploadsDir, `${sessionId}-${answerId}.webm`);
-        fs.writeFileSync(filePath, buffer);
+        // 2. Persist to disk (/tmp and public/uploads if available)
+        try {
+          const tmpDir = path.join('/tmp', 'questai_videos');
+          if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+          fs.writeFileSync(path.join(tmpDir, `${sessionId}-${answerId}.webm`), buffer);
 
-        // 3. Attempt server-side Supabase storage upload if configured
-        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+          const uploadsDir = path.join(process.cwd(), 'public', 'uploads', 'videos');
+          if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+          fs.writeFileSync(path.join(uploadsDir, `${sessionId}-${answerId}.webm`), buffer);
+        } catch {
+          // Ignore read-only filesystem restrictions on serverless environments
+        }
+
+        // 3. Guaranteed server-side Supabase storage upload if configured
+        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+        const sbKey =
+          process.env.SUPABASE_SERVICE_ROLE_KEY ||
+          process.env.SUPABASE_SERVICE_KEY ||
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+          process.env.SUPABASE_ANON_KEY ||
+          process.env.SUPABASE_KEY;
+        let supabaseDiagnostic = '';
+
         if (sbUrl && sbKey && !sbUrl.includes('placeholder')) {
           try {
             const sbAdmin = createClient(sbUrl, sbKey);
             const storagePath = `${sessionId}/${answerId}.webm`;
-            const { error: sbErr } = await sbAdmin.storage
+
+            // Test or attempt bucket creation if using service key
+            if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+              try {
+                await sbAdmin.storage.createBucket('interview-videos', {
+                  public: true,
+                  fileSizeLimit: 104857600,
+                }).catch(() => null);
+              } catch {}
+            }
+
+            const { data: uploadData, error: sbErr } = await sbAdmin.storage
               .from('interview-videos')
               .upload(storagePath, buffer, {
                 contentType: 'video/webm',
                 upsert: true,
               });
 
-            if (!sbErr) {
+            if (!sbErr && uploadData) {
               const { data: pubData } = sbAdmin.storage
                 .from('interview-videos')
                 .getPublicUrl(storagePath);
               if (pubData?.publicUrl) {
                 finalVideoUrl = pubData.publicUrl;
+                supabaseUploaded = true;
+                console.log(`[Supabase Storage Success] Stored video at: ${finalVideoUrl}`);
               }
-            } else {
-              console.warn('Notice from Supabase Storage server upload:', sbErr.message || sbErr);
+            } else if (sbErr) {
+              supabaseDiagnostic = sbErr.message || 'Supabase upload error';
+              console.warn('[Supabase Storage Warning]:', supabaseDiagnostic);
             }
-          } catch (sbEx) {
-            console.warn('Supabase Storage server exception:', sbEx);
+          } catch (sbEx: any) {
+            supabaseDiagnostic = sbEx?.message || 'Supabase storage exception';
+            console.warn('[Supabase Storage Exception]:', supabaseDiagnostic);
           }
         }
       } catch (fileErr) {
-        console.warn('Notice writing video buffer:', fileErr);
+        console.warn('Notice processing video buffer:', fileErr);
       }
 
       answer.transcript = `[Candidate Verbal & Video Response Recorded]. Candidate addressed the question directly on camera with a structured response.`;
@@ -119,6 +148,7 @@ export async function POST(
       success: true,
       answer_id: answerId,
       video_url: finalVideoUrl,
+      supabase_stored: finalVideoUrl.startsWith('http') || supabaseUploaded,
     });
   } catch (err: any) {
     console.error('Upload processing error:', err);

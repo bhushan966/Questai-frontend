@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
-import { mockStore } from '@/lib/mockStore';
+import { mockStore, markRoleDeleted, persistMockStore } from '@/lib/mockStore';
 
 export async function GET(
   _request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
+  if (mockStore.deletedRoleIds?.includes(id)) {
+    return NextResponse.json({ detail: 'Job role not found' }, { status: 404 });
+  }
   const role = mockStore.jobRoles.find((r) => r.id === id);
   if (!role) {
     return NextResponse.json({ detail: 'Job role not found' }, { status: 404 });
@@ -53,13 +56,14 @@ export async function DELETE(
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
-  const index = mockStore.jobRoles.findIndex((r) => r.id === id);
-  if (index === -1) {
-    return NextResponse.json({ detail: 'Job role not found' }, { status: 404 });
-  }
+  markRoleDeleted(id);
 
-  // Remove role
-  const [removedRole] = mockStore.jobRoles.splice(index, 1);
+  const index = mockStore.jobRoles.findIndex((r) => r.id === id);
+  let removedTitle = 'Role';
+  if (index !== -1) {
+    const [removedRole] = mockStore.jobRoles.splice(index, 1);
+    removedTitle = removedRole.title;
+  }
 
   // Cascading cleanup of questions for this role
   mockStore.questions = mockStore.questions.filter((q) => q.job_role_id !== id);
@@ -72,9 +76,11 @@ export async function DELETE(
   mockStore.answers = mockStore.answers.filter((a) => !removedSessionIds.has(a.session_id));
   mockStore.turns = mockStore.turns.filter((t) => !removedSessionIds.has(t.session_id));
 
+  persistMockStore();
+
   return NextResponse.json({
     deleted: true,
-    id: removedRole.id,
-    title: removedRole.title,
+    id,
+    title: removedTitle,
   });
 }

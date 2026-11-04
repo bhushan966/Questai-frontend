@@ -616,16 +616,17 @@ export default function InterviewPage() {
           if (pubData?.publicUrl) {
             supabaseVideoUrl = pubData.publicUrl;
             uploaded = true;
+            console.log(`[Supabase Upload Success] Uploaded candidate recording to: ${supabaseVideoUrl}`);
           }
         } else if (storageErr) {
-          console.warn('Notice from Supabase Storage:', storageErr.message || storageErr);
+          console.warn('[Supabase Upload Notice]:', storageErr.message || storageErr);
         }
       }
     } catch (storageException) {
-      console.warn('Supabase storage upload fallback:', storageException);
+      console.warn('Supabase storage direct upload fallback:', storageException);
     }
 
-    // 2. Guaranteed local Next.js upload endpoint
+    // 2. Local Next.js upload endpoint (saves and performs server-side Supabase sync)
     try {
       const localFormData = new FormData();
       localFormData.append('file', blob, `${answerId}.webm`);
@@ -638,9 +639,13 @@ export default function InterviewPage() {
       });
       if (localRes.ok) {
         uploaded = true;
+        const resJson = await localRes.json().catch(() => null);
+        if (resJson?.video_url && typeof resJson.video_url === 'string' && resJson.video_url.startsWith('http')) {
+          supabaseVideoUrl = resJson.video_url;
+        }
       }
     } catch (localErr) {
-      console.warn(`Local upload for ${answerId}:`, localErr);
+      console.warn(`Upload endpoint warning for ${answerId}:`, localErr);
     }
 
     // 3. Try external API_URL if configured and not /api

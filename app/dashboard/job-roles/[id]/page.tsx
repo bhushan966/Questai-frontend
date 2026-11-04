@@ -77,6 +77,20 @@ export default function JobRoleSessionsPage() {
   useEffect(() => {
     if (!user || !id) return;
 
+    // Check if role has been deleted
+    if (typeof window !== 'undefined') {
+      try {
+        const deletedStored = localStorage.getItem('questai_deleted_roles');
+        if (deletedStored) {
+          const deletedList: string[] = JSON.parse(deletedStored);
+          if (deletedList.includes(id)) {
+            router.replace('/dashboard');
+            return;
+          }
+        }
+      } catch {}
+    }
+
     // 1. Immediately check localStorage for instantaneous display
     let localRole: JobRole | null = null;
     if (typeof window !== 'undefined') {
@@ -135,7 +149,7 @@ export default function JobRoleSessionsPage() {
         console.error('Failed to load role details:', err);
         setLoading(false);
       });
-  }, [id, user]);
+  }, [id, user, router]);
 
   const handleGenerateLink = async (source: 'ai' | 'manual' | 'conversational') => {
     setGenerating(true);
