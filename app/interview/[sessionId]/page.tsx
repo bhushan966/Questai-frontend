@@ -310,7 +310,72 @@ export default function InterviewPage() {
   const practiceQuestionText =
     'Tell us about yourself, your background, and why you are interested in this position.';
 
-  // Text-To-Speech helper: cleanly speaks the question aloud using browser speech synthesis
+  const [voiceGender, setVoiceGender] = useState<'female' | 'male'>('female');
+  const cachedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
+
+  // Helper to consistently find a voice matching the requested gender
+  const getConsistentVoice = useCallback((gender: 'female' | 'male'): SpeechSynthesisVoice | null => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+    const allVoices = window.speechSynthesis.getVoices();
+    if (!allVoices || allVoices.length === 0) return null;
+
+    const english = allVoices.filter((v) => v.lang.startsWith('en'));
+    const pool = english.length > 0 ? english : allVoices;
+
+    if (gender === 'female') {
+      return (
+        pool.find((v) => {
+          const n = v.name.toLowerCase();
+          return (
+            n.includes('female') ||
+            n.includes('samantha') ||
+            n.includes('karen') ||
+            n.includes('victoria') ||
+            n.includes('zira') ||
+            n.includes('jenny') ||
+            n.includes('aria') ||
+            n.includes('natural female') ||
+            (n.includes('google') && !n.includes('male'))
+          );
+        }) ||
+        pool.find((v) => !v.name.toLowerCase().includes('male') && !v.name.toLowerCase().includes('david')) ||
+        pool[0]
+      );
+    } else {
+      return (
+        pool.find((v) => {
+          const n = v.name.toLowerCase();
+          return (
+            n.includes('male') ||
+            n.includes('david') ||
+            n.includes('daniel') ||
+            n.includes('guy') ||
+            n.includes('george') ||
+            n.includes('mark') ||
+            n.includes('natural male')
+          );
+        }) || pool[0]
+      );
+    }
+  }, []);
+
+  // Preload and lock the voice immediately on component mount
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    const updateVoice = () => {
+      const v = getConsistentVoice(voiceGender);
+      if (v) cachedVoiceRef.current = v;
+    };
+
+    updateVoice();
+    if ('onvoiceschanged' in window.speechSynthesis) {
+      window.speechSynthesis.onvoiceschanged = updateVoice;
+    }
+    window.speechSynthesis.getVoices();
+  }, [voiceGender, getConsistentVoice]);
+
+  // Text-To-Speech helper: cleanly speaks the question aloud with a 100% consistent voice
   const speakText = useCallback((text: string, onDone: () => void) => {
     if (speechTimerRef.current) {
       clearTimeout(speechTimerRef.current);
@@ -319,25 +384,26 @@ export default function InterviewPage() {
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+
+      // Resolve voice consistently - never fall back to mismatched system voice
+      let chosenVoice = cachedVoiceRef.current || getConsistentVoice(voiceGender);
+      if (!chosenVoice) {
+        // If voices array is still empty (Chrome initial load), retry synchronously or use first available
+        const currentVoices = window.speechSynthesis.getVoices();
+        if (currentVoices.length > 0) {
+          chosenVoice = getConsistentVoice(voiceGender);
+        }
+      }
+      if (chosenVoice) {
+        cachedVoiceRef.current = chosenVoice;
+      }
+
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
 
-      // Select natural English voice if available
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice =
-        voices.find(
-          (v) =>
-            (v.name.includes('Google') ||
-              v.name.includes('Natural') ||
-              v.name.includes('Samantha') ||
-              v.name.includes('Daniel') ||
-              v.name.includes('Karen')) &&
-            v.lang.startsWith('en')
-        ) || voices.find((v) => v.lang.startsWith('en'));
-
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
+      if (chosenVoice) {
+        utterance.voice = chosenVoice;
       }
 
       let doneFired = false;
@@ -363,7 +429,7 @@ export default function InterviewPage() {
     } else {
       setTimeout(onDone, 2000);
     }
-  }, []);
+  }, [voiceGender, getConsistentVoice]);
 
   const stopSpeaking = useCallback(() => {
     if (speechTimerRef.current) {
@@ -1329,6 +1395,43 @@ export default function InterviewPage() {
                 <audio controls src={micTestUrl} className="h-7 flex-1" />
               </div>
             )}
+
+            {/* Consistent Voice Selector */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 border-t border-slate-800 text-xs">
+              <span className="text-slate-400 font-medium">Interviewer Voice:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVoiceGender('female');
+                    cachedVoiceRef.current = getConsistentVoice('female');
+                    speakText('Hello, this is the interviewer voice.', () => {});
+                  }}
+                  className={`px-3 py-1.5 rounded-xl transition-all font-medium text-xs flex items-center gap-1.5 ${
+                    voiceGender === 'female'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30 ring-1 ring-purple-400'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>Female (Default)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVoiceGender('male');
+                    cachedVoiceRef.current = getConsistentVoice('male');
+                    speakText('Hello, this is the interviewer voice.', () => {});
+                  }}
+                  className={`px-3 py-1.5 rounded-xl transition-all font-medium text-xs flex items-center gap-1.5 ${
+                    voiceGender === 'male'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30 ring-1 ring-purple-400'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>Male</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Action CTAs: Start Interview Directly OR Practice Question */}
