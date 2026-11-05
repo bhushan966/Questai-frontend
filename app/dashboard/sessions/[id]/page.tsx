@@ -231,6 +231,8 @@ export default function SessionDetailPage() {
           const map = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
           map[id] = {
             ...ratingData,
+            job_role_id: session?.job_role_id,
+            candidate_name: session?.candidate_name,
             evaluated_at: new Date().toISOString(),
           };
           localStorage.setItem('questai_session_evaluations', JSON.stringify(map));

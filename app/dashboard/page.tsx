@@ -85,11 +85,7 @@ export default function DashboardPage() {
 
       try {
         const rolesUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/` : `${API_URL}/job-roles`;
-        const sessionsUrl = API_URL.startsWith('http') ? `${API_URL}/sessions/` : `${API_URL}/sessions`;
-        const [rolesRes, sessionsRes] = await Promise.all([
-          authedFetch(rolesUrl).catch(() => null),
-          fetch(sessionsUrl).catch(() => null),
-        ]);
+        const rolesRes = await authedFetch(rolesUrl).catch(() => null);
 
         let apiRoles: JobRole[] = [];
         if (rolesRes && rolesRes.ok) {
@@ -112,10 +108,41 @@ export default function DashboardPage() {
         }
         const combinedRoles = Array.from(mergedMap.values());
 
-        let sessionsData: SessionSummary[] = [];
-        if (sessionsRes && sessionsRes.ok) {
-          sessionsData = await sessionsRes.json().catch(() => []);
-        }
+        // Concurrently fetch sessions for all active roles from external backend + internal API
+        const roleSessionPromises = combinedRoles.map(async (role) => {
+          try {
+            const res = await authedFetch(`${API_URL}/job-roles/${role.id}/sessions`);
+            if (res.ok) {
+              const data = await res.json();
+              return Array.isArray(data) ? data : [];
+            }
+          } catch {
+            // ignore
+          }
+          return [];
+        });
+
+        const internalSessionsPromise = fetch('/api/sessions')
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []);
+
+        const [roleSessionsArrays, internalSessions] = await Promise.all([
+          Promise.all(roleSessionPromises),
+          internalSessionsPromise,
+        ]);
+
+        const allRawSessions: SessionSummary[] = [
+          ...roleSessionsArrays.flat(),
+          ...(Array.isArray(internalSessions) ? internalSessions : []),
+        ];
+
+        // Deduplicate sessions by session ID
+        const sessionsMap = new Map<string, SessionSummary>();
+        allRawSessions.forEach((s) => {
+          if (s && s.id && !sessionsMap.has(s.id)) {
+            sessionsMap.set(s.id, s);
+          }
+        });
 
         let submittedMap: Record<string, boolean> = {};
         let evaluationsMap: Record<string, any> = {};
@@ -126,12 +153,29 @@ export default function DashboardPage() {
           } catch {}
         }
 
-        const rawSessions = Array.isArray(sessionsData) ? sessionsData : [];
-        const enrichedSessions = rawSessions.map((s: SessionSummary) => {
+        // Ensure any locally evaluated sessions are accounted for
+        Object.keys(evaluationsMap).forEach((sessId) => {
+          const ev = evaluationsMap[sessId];
+          const existing = sessionsMap.get(sessId);
+          if (existing) {
+            existing.rating = existing.rating || { decision: ev.decision };
+            if (ev.decision) existing.status = 'submitted';
+            if (!existing.job_role_id && ev.job_role_id) existing.job_role_id = ev.job_role_id;
+          } else {
+            sessionsMap.set(sessId, {
+              id: sessId,
+              job_role_id: ev.job_role_id || (combinedRoles[0]?.id || ''),
+              status: 'submitted',
+              rating: { decision: ev.decision },
+            });
+          }
+        });
+
+        const enrichedSessions = Array.from(sessionsMap.values()).map((s: SessionSummary) => {
           const localEval = evaluationsMap[s.id];
           return {
             ...s,
-            status: submittedMap[s.id] ? 'submitted' : s.status,
+            status: submittedMap[s.id] || localEval ? 'submitted' : s.status,
             rating: s.rating || (localEval ? { decision: localEval.decision } : undefined),
           };
         });
