@@ -116,9 +116,22 @@ export default function DashboardPage() {
           sessionsData = await sessionsRes.json().catch(() => []);
         }
 
+        let submittedMap: Record<string, boolean> = {};
+        if (typeof window !== 'undefined') {
+          try {
+            submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          } catch {}
+        }
+
+        const rawSessions = Array.isArray(sessionsData) ? sessionsData : [];
+        const enrichedSessions = rawSessions.map((s: SessionSummary) => ({
+          ...s,
+          status: submittedMap[s.id] ? 'submitted' : s.status,
+        }));
+
         if (isMounted) {
           setJobRoles(combinedRoles);
-          setSessions(Array.isArray(sessionsData) ? sessionsData : []);
+          setSessions(enrichedSessions);
           setLoading(false);
         }
       } catch (err) {
@@ -437,6 +450,31 @@ export default function DashboardPage() {
                           )}
                         </div>
                       )}
+
+                      {/* Live Interview Status Badge */}
+                      {(() => {
+                        const roleSessions = sessions.filter((s) => s.job_role_id === role.id);
+                        const submittedCount = roleSessions.filter((s) => s.status === 'submitted').length;
+                        const inProgressCount = roleSessions.filter((s) => s.status !== 'submitted').length;
+
+                        return (
+                          <div className="flex items-center gap-2 pt-1.5">
+                            {submittedCount > 0 ? (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-emerald-950/60 text-emerald-300 border-emerald-800 font-medium flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                <span>{submittedCount} Ready for Review</span>
+                              </span>
+                            ) : inProgressCount > 0 ? (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-slate-800 text-slate-400 border-slate-700 font-medium flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-slate-400" />
+                                <span>{inProgressCount} In Progress</span>
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-500">No candidates yet</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="pt-5 mt-5 border-t border-slate-800/80 flex items-center justify-between gap-3">

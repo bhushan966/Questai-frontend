@@ -134,6 +134,11 @@ export function SupabaseDiagnosticBanner() {
 
   if (dismissed || !status) return null;
 
+  // If using external backend (FastAPI on Render), database and storage are handled by FastAPI - hide diagnostic banner
+  if (typeof window !== 'undefined' && (process.env.NEXT_PUBLIC_API_URL || '').startsWith('http')) {
+    return null;
+  }
+
   // Fully operational status: Render minimal pill
   if (status.status === 'ready') {
     return (

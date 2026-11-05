@@ -104,7 +104,17 @@ export function GenerateLinkModal({
       }
 
       const session = await res.json();
-      setGeneratedLink(`${window.location.origin}/interview/${session.id}`);
+
+      if (typeof window !== 'undefined' && candidateName.trim() && session?.id) {
+        try {
+          const map = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+          map[session.id] = candidateName.trim();
+          localStorage.setItem('questai_candidate_names', JSON.stringify(map));
+        } catch {}
+      }
+
+      const nameQuery = candidateName.trim() ? `?name=${encodeURIComponent(candidateName.trim())}` : '';
+      setGeneratedLink(`${window.location.origin}/interview/${session.id}${nameQuery}`);
     } catch (err: any) {
       setError(err.message || 'Failed to generate link');
     } finally {

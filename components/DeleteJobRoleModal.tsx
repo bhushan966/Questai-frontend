@@ -28,14 +28,28 @@ export function DeleteJobRoleModal({
     setError(null);
 
     try {
-      // 1. Delete from API
-      const res = await authedFetch(`${API_URL}/job-roles/${role.id}`, {
-        method: 'DELETE',
-      });
+      // 1. Delete from API (FastAPI backend or local API)
+      try {
+        const res = await authedFetch(`${API_URL}/job-roles/${role.id}`, {
+          method: 'DELETE',
+        });
 
-      if (!res.ok && res.status !== 404) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.detail || 'Failed to delete job role');
+        // If FastAPI doesn't implement DELETE /job-roles/{id} (returns 405 Method Not Allowed),
+        // or returns 404, we don't block deletion. Only throw for 500 server errors.
+        if (!res.ok && res.status !== 404 && res.status !== 405) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.detail || 'Failed to delete job role from backend');
+        }
+      } catch (fetchErr: any) {
+        // If route not implemented or network fallback, proceed with database & local tombstone
+        console.warn('API delete notice:', fetchErr?.message);
+      }
+
+      // Also call internal Next.js/Supabase endpoint if different
+      if (API_URL !== '/api') {
+        try {
+          await fetch(`/api/job-roles/${role.id}`, { method: 'DELETE' });
+        } catch {}
       }
 
       // 2. Remove from localStorage saved roles & record in deleted roles tombstone

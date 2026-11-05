@@ -103,7 +103,20 @@ export default function SessionDetailPage() {
           setLoading(false);
           return;
         }
-        setSession(sessionData);
+        let candidateNameMap: Record<string, string> = {};
+        let submittedMap: Record<string, boolean> = {};
+        if (typeof window !== 'undefined') {
+          try {
+            candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+            submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          } catch {}
+        }
+        const enrichedSession = {
+          ...sessionData,
+          candidate_name: sessionData.candidate_name || candidateNameMap[id],
+          status: submittedMap[id] ? 'submitted' : sessionData.status,
+        };
+        setSession(enrichedSession);
 
         // Pre-fill rating state if already evaluated
         if (sessionData.rating) {

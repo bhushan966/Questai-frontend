@@ -118,31 +118,35 @@ export default function JobRoleSessionsPage() {
           setRole(roleData);
         } else if (localRole) {
           setRole(localRole);
-          // Sync local role to server mockStore
-          authedFetch(`${API_URL}/job-roles`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(localRole),
-          }).catch(() => null);
         } else {
-          // If not in API and not in first check, try localStorage again
           try {
             const stored = localStorage.getItem('questai_saved_roles');
             if (stored) {
               const list = JSON.parse(stored);
               const found = list.find((r: JobRole) => r.id === id);
-              if (found) {
-                setRole(found);
-                authedFetch(`${API_URL}/job-roles`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(found),
-                }).catch(() => null);
-              }
+              if (found) setRole(found);
             }
           } catch {}
         }
-        setSessions(Array.isArray(sessionsData) ? sessionsData : []);
+
+        // Enrich sessions with saved candidate names & submitted state
+        let candidateNameMap: Record<string, string> = {};
+        let submittedSessionsMap: Record<string, boolean> = {};
+        if (typeof window !== 'undefined') {
+          try {
+            candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+            submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          } catch {}
+        }
+
+        const rawList = Array.isArray(sessionsData) ? sessionsData : [];
+        const enriched = rawList.map((s: SessionSummary) => ({
+          ...s,
+          candidate_name: s.candidate_name || candidateNameMap[s.id],
+          status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
+        }));
+
+        setSessions(enriched);
         setLoading(false);
       })
       .catch((err) => {
@@ -162,16 +166,7 @@ export default function JobRoleSessionsPage() {
     const candidateNameVal = candidateName.trim() || undefined;
 
     try {
-      // 1. Ensure the job role is synchronized to the backend
-      if (role) {
-        await authedFetch(`${API_URL}/job-roles`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(role),
-        }).catch(() => null);
-      }
-
-      // 2. If AI questions, ensure question generation was triggered on the backend
+      // 1. If AI questions, ensure question generation was triggered on the backend
       if (questionSource === 'ai') {
         await authedFetch(`${API_URL}/job-roles/${id}/generate-questions`, {
           method: 'POST',
@@ -195,7 +190,8 @@ export default function JobRoleSessionsPage() {
 
       if (API_URL !== '/api') {
         try {
-          res = await fetch(`${API_URL}/sessions`, {
+          const sessionsUrl = API_URL.startsWith('http') ? `${API_URL}/sessions/` : `${API_URL}/sessions`;
+          res = await fetch(sessionsUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -219,7 +215,8 @@ export default function JobRoleSessionsPage() {
           }).catch(() => null);
 
           try {
-            res = await fetch(`${API_URL}/sessions`, {
+            const sessionsUrl = API_URL.startsWith('http') ? `${API_URL}/sessions/` : `${API_URL}/sessions`;
+            res = await fetch(sessionsUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload),
@@ -262,6 +259,15 @@ export default function JobRoleSessionsPage() {
         }).catch(() => null);
       }
 
+      // Persist candidate name mapping in localStorage so recruiter always sees the candidate name
+      if (typeof window !== 'undefined' && candidateNameVal && session?.id) {
+        try {
+          const map = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+          map[session.id] = candidateNameVal;
+          localStorage.setItem('questai_candidate_names', JSON.stringify(map));
+        } catch {}
+      }
+
       const modeTitle =
         source === 'conversational'
           ? 'Live Conversational AI'
@@ -269,15 +275,33 @@ export default function JobRoleSessionsPage() {
           ? 'Custom Questions'
           : 'AI-Curated Questions';
 
+      const nameQuery = candidateNameVal ? `?name=${encodeURIComponent(candidateNameVal)}` : '';
       setGeneratedLink({
-        url: `${window.location.origin}/interview/${session.id}`,
+        url: `${window.location.origin}/interview/${session.id}${nameQuery}`,
         modeTitle,
       });
 
-      // Refresh candidate list
-      authedFetch(`${API_URL}/job-roles/${id}/sessions`)
+      // Refresh candidate list and enrich with candidate name and submission status
+      const listUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/${id}/sessions` : `${API_URL}/job-roles/${id}/sessions`;
+      authedFetch(listUrl)
         .then((r) => (r.ok ? r.json() : []))
-        .then((data) => setSessions(Array.isArray(data) ? data : []))
+        .then((data) => {
+          const raw = Array.isArray(data) ? data : [];
+          let candidateNameMap: Record<string, string> = {};
+          let submittedSessionsMap: Record<string, boolean> = {};
+          if (typeof window !== 'undefined') {
+            try {
+              candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+              submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+            } catch {}
+          }
+          const enriched = raw.map((s: SessionSummary) => ({
+            ...s,
+            candidate_name: s.candidate_name || candidateNameMap[s.id],
+            status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
+          }));
+          setSessions(enriched);
+        })
         .catch(() => null);
     } catch (err: any) {
       console.warn('Generate link error:', err);

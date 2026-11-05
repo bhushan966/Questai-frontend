@@ -78,11 +78,6 @@ export default function ManageQuestionsPage() {
           setRole(roleData);
         } else if (localRole) {
           setRole(localRole);
-          authedFetch(`${API_URL}/job-roles`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(localRole),
-          }).catch(() => null);
         }
         setQuestions(Array.isArray(questionsData) ? questionsData : []);
         setLoading(false);

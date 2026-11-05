@@ -310,7 +310,7 @@ export default function InterviewPage() {
   const practiceQuestionText =
     'Tell us about yourself, your background, and why you are interested in this position.';
 
-  const [voiceGender, setVoiceGender] = useState<'female' | 'male'>('female');
+  const voiceGender = 'female' as const;
   const cachedVoiceRef = useRef<SpeechSynthesisVoice | null>(null);
 
   // Helper to consistently find a voice matching the requested gender
@@ -534,6 +534,23 @@ export default function InterviewPage() {
 
     loadSessionData()
       .then((sess) => {
+        if (typeof window !== 'undefined') {
+          try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const nameParam = urlParams.get('name');
+            if (nameParam) {
+              sess.candidate_name = nameParam;
+              const map = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+              map[sessionId] = nameParam;
+              localStorage.setItem('questai_candidate_names', JSON.stringify(map));
+            } else {
+              const map = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+              if (map[sessionId]) {
+                sess.candidate_name = map[sessionId];
+              }
+            }
+          } catch {}
+        }
         setSession(sess);
 
         fetch(`${API_URL}/job-roles/${sess.job_role_id}`)
@@ -995,20 +1012,36 @@ export default function InterviewPage() {
         await Promise.all(uploadPromises);
       }
 
-      // 2. Submit session to mark completion
+      // 2. Submit session to mark completion (prioritizing FastAPI on Render)
       let submitRes: Response | null = null;
+      if (API_URL !== '/api') {
+        try {
+          const extUrl = API_URL.startsWith('http')
+            ? `${API_URL}/sessions/${sessionId}/submit`
+            : `${API_URL}/sessions/${sessionId}/submit`;
+          submitRes = await fetch(extUrl, { method: 'POST' });
+        } catch (extErr) {
+          console.warn('External submit notice:', extErr);
+        }
+      }
+
+      // Also notify local/Supabase endpoint
       try {
-        submitRes = await fetch(`/api/sessions/${sessionId}/submit`, { method: 'POST' });
-      } catch {
-        submitRes = null;
+        const localRes = await fetch(`/api/sessions/${sessionId}/submit`, { method: 'POST' });
+        if (!submitRes || !submitRes.ok) {
+          submitRes = localRes;
+        }
+      } catch (localErr) {
+        console.warn('Local submit notice:', localErr);
       }
 
-      if ((!submitRes || !submitRes.ok) && API_URL !== '/api') {
-        submitRes = await fetch(`${API_URL}/sessions/${sessionId}/submit`, { method: 'POST' }).catch(() => null);
-      }
-
-      if (!submitRes || !submitRes.ok) {
-        throw new Error('Failed to submit session to backend');
+      // Record submitted tombstone in localStorage so dashboard instantly shows Ready for Review
+      if (typeof window !== 'undefined') {
+        try {
+          const map = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          map[sessionId] = true;
+          localStorage.setItem('questai_submitted_sessions', JSON.stringify(map));
+        } catch {}
       }
 
       setPhase('complete');
@@ -1396,42 +1429,6 @@ export default function InterviewPage() {
               </div>
             )}
 
-            {/* Consistent Voice Selector */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 border-t border-slate-800 text-xs">
-              <span className="text-slate-400 font-medium">Interviewer Voice:</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVoiceGender('female');
-                    cachedVoiceRef.current = getConsistentVoice('female');
-                    speakText('Hello, this is the interviewer voice.', () => {});
-                  }}
-                  className={`px-3 py-1.5 rounded-xl transition-all font-medium text-xs flex items-center gap-1.5 ${
-                    voiceGender === 'female'
-                      ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30 ring-1 ring-purple-400'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  <span>Female (Default)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVoiceGender('male');
-                    cachedVoiceRef.current = getConsistentVoice('male');
-                    speakText('Hello, this is the interviewer voice.', () => {});
-                  }}
-                  className={`px-3 py-1.5 rounded-xl transition-all font-medium text-xs flex items-center gap-1.5 ${
-                    voiceGender === 'male'
-                      ? 'bg-purple-600 text-white shadow-md shadow-purple-900/30 ring-1 ring-purple-400'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  <span>Male</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Action CTAs: Start Interview Directly OR Practice Question */}
