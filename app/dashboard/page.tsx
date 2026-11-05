@@ -23,6 +23,7 @@ import {
   Copy,
   Trash2,
   Check,
+  Star,
 } from 'lucide-react';
 
 interface JobRole {
@@ -117,17 +118,23 @@ export default function DashboardPage() {
         }
 
         let submittedMap: Record<string, boolean> = {};
+        let evaluationsMap: Record<string, any> = {};
         if (typeof window !== 'undefined') {
           try {
             submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+            evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
           } catch {}
         }
 
         const rawSessions = Array.isArray(sessionsData) ? sessionsData : [];
-        const enrichedSessions = rawSessions.map((s: SessionSummary) => ({
-          ...s,
-          status: submittedMap[s.id] ? 'submitted' : s.status,
-        }));
+        const enrichedSessions = rawSessions.map((s: SessionSummary) => {
+          const localEval = evaluationsMap[s.id];
+          return {
+            ...s,
+            status: submittedMap[s.id] ? 'submitted' : s.status,
+            rating: s.rating || (localEval ? { decision: localEval.decision } : undefined),
+          };
+        });
 
         if (isMounted) {
           setJobRoles(combinedRoles);
@@ -213,6 +220,9 @@ export default function DashboardPage() {
   // Metric Computations
   const totalRoles = jobRoles.length;
   const completedSessions = sessions.filter((s) => s.status === 'submitted').length;
+  const readyForReviewCount = sessions.filter(
+    (s) => s.status === 'submitted' && (!s.rating?.decision || s.rating.decision === 'pending')
+  ).length;
   const inProgressSessions = sessions.filter((s) => s.status !== 'submitted').length;
   const shortlistedCount = sessions.filter((s) => s.rating?.decision === 'shortlisted').length;
 
@@ -290,13 +300,13 @@ export default function DashboardPage() {
 
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between text-slate-400 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wider">Completed</span>
+              <span className="text-xs font-semibold uppercase tracking-wider">Ready for Review</span>
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-2xl font-bold text-emerald-400 tabular-nums">
-              {completedSessions}
+              {readyForReviewCount}
             </div>
-            <div className="text-xs text-slate-500 mt-1">Ready for recruiter review</div>
+            <div className="text-xs text-slate-500 mt-1">{completedSessions} total submitted</div>
           </div>
 
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-4 sm:p-5">
@@ -454,22 +464,40 @@ export default function DashboardPage() {
                       {/* Live Interview Status Badge */}
                       {(() => {
                         const roleSessions = sessions.filter((s) => s.job_role_id === role.id);
-                        const submittedCount = roleSessions.filter((s) => s.status === 'submitted').length;
-                        const inProgressCount = roleSessions.filter((s) => s.status !== 'submitted').length;
+                        const shortlisted = roleSessions.filter((s) => s.rating?.decision === 'shortlisted').length;
+                        const onHold = roleSessions.filter((s) => s.rating?.decision === 'hold').length;
+                        const readyForReview = roleSessions.filter(
+                          (s) => s.status === 'submitted' && (!s.rating?.decision || s.rating.decision === 'pending')
+                        ).length;
+                        const inProgress = roleSessions.filter((s) => s.status !== 'submitted').length;
 
                         return (
-                          <div className="flex items-center gap-2 pt-1.5">
-                            {submittedCount > 0 ? (
-                              <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-emerald-950/60 text-emerald-300 border-emerald-800 font-medium flex items-center gap-1">
+                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
+                            {readyForReview > 0 && (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-emerald-950/60 text-emerald-300 border-emerald-800 font-medium flex items-center gap-1 shadow-sm">
                                 <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                                <span>{submittedCount} Ready for Review</span>
+                                <span>{readyForReview} Ready for Review</span>
                               </span>
-                            ) : inProgressCount > 0 ? (
+                            )}
+                            {shortlisted > 0 && (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-purple-950/60 text-purple-300 border-purple-800 font-semibold flex items-center gap-1 shadow-sm">
+                                <Star className="w-3 h-3 text-purple-400 fill-purple-400" />
+                                <span>{shortlisted} Shortlisted</span>
+                              </span>
+                            )}
+                            {onHold > 0 && (
+                              <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-amber-950/60 text-amber-300 border-amber-800 font-medium flex items-center gap-1 shadow-sm">
+                                <Clock className="w-3 h-3 text-amber-400" />
+                                <span>{onHold} On Hold</span>
+                              </span>
+                            )}
+                            {inProgress > 0 && readyForReview === 0 && shortlisted === 0 && onHold === 0 && (
                               <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-slate-800 text-slate-400 border-slate-700 font-medium flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-slate-400" />
-                                <span>{inProgressCount} In Progress</span>
+                                <span>{inProgress} In Progress</span>
                               </span>
-                            ) : (
+                            )}
+                            {roleSessions.length === 0 && (
                               <span className="text-[11px] text-slate-500">No candidates yet</span>
                             )}
                           </div>

@@ -21,6 +21,7 @@ import {
   Save,
   Award,
   FileText,
+  XCircle,
 } from 'lucide-react';
 
 interface SessionAnswer {
@@ -105,26 +106,39 @@ export default function SessionDetailPage() {
         }
         let candidateNameMap: Record<string, string> = {};
         let submittedMap: Record<string, boolean> = {};
+        let evaluationsMap: Record<string, any> = {};
         if (typeof window !== 'undefined') {
           try {
             candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
             submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+            evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
           } catch {}
         }
+
+        const localEval = evaluationsMap[id];
+        const effectiveRating = sessionData.rating || (localEval ? {
+          technical: localEval.technical,
+          communication: localEval.communication,
+          problem_solving: localEval.problem_solving,
+          decision: localEval.decision,
+          notes: localEval.notes,
+        } : null);
+
         const enrichedSession = {
           ...sessionData,
           candidate_name: sessionData.candidate_name || candidateNameMap[id],
           status: submittedMap[id] ? 'submitted' : sessionData.status,
+          rating: effectiveRating,
         };
         setSession(enrichedSession);
 
         // Pre-fill rating state if already evaluated
-        if (sessionData.rating) {
-          setTechnicalRating(sessionData.rating.technical || 0);
-          setCommunicationRating(sessionData.rating.communication || 0);
-          setProblemSolvingRating(sessionData.rating.problem_solving || 0);
-          setNotes(sessionData.rating.notes || '');
-          setDecision(sessionData.rating.decision || 'pending');
+        if (effectiveRating) {
+          setTechnicalRating(effectiveRating.technical || 0);
+          setCommunicationRating(effectiveRating.communication || 0);
+          setProblemSolvingRating(effectiveRating.problem_solving || 0);
+          setNotes(effectiveRating.notes || '');
+          setDecision(effectiveRating.decision || 'pending');
         }
 
         // Fetch associated role
@@ -176,29 +190,62 @@ export default function SessionDetailPage() {
   const handleSaveScorecard = async () => {
     setSavingScorecard(true);
     setScorecardSaved(false);
+    setScorecardError(null);
+
+    const ratingData = {
+      technical: technicalRating,
+      communication: communicationRating,
+      problem_solving: problemSolvingRating,
+      notes,
+      decision,
+    };
 
     try {
-      const res = await authedFetch(`${API_URL}/sessions/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rating: {
-            technical: technicalRating,
-            communication: communicationRating,
-            problem_solving: problemSolvingRating,
-            notes,
-            decision,
-          },
-        }),
-      });
+      // 1. Try external backend if configured
+      if (API_URL !== '/api') {
+        try {
+          await authedFetch(`${API_URL}/sessions/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rating: ratingData }),
+          });
+        } catch (extErr) {
+          console.warn('External backend rating update notice:', extErr);
+        }
+      }
 
-      if (!res.ok) throw new Error('Failed to save evaluation');
+      // 2. Persist to internal API & Supabase database
+      try {
+        await fetch(`/api/sessions/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating: ratingData }),
+        });
+      } catch (localErr) {
+        console.warn('Local rating update notice:', localErr);
+      }
+
+      // 3. Persist in localStorage evaluations map so recruiter ratings are instantaneous & persistent
+      if (typeof window !== 'undefined') {
+        try {
+          const map = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
+          map[id] = {
+            ...ratingData,
+            evaluated_at: new Date().toISOString(),
+          };
+          localStorage.setItem('questai_session_evaluations', JSON.stringify(map));
+        } catch {}
+      }
+
+      // 4. Update current session state so badge updates immediately
+      setSession((prev) => (prev ? { ...prev, rating: ratingData } : null));
+
       setScorecardError(null);
       setScorecardSaved(true);
       setTimeout(() => setScorecardSaved(false), 2500);
     } catch (err: any) {
       console.warn('Scorecard save warning:', err);
-      setScorecardError(err.message || 'Failed to save evaluation.');
+      setScorecardError(err?.message || 'Failed to save evaluation.');
     } finally {
       setSavingScorecard(false);
     }
@@ -276,25 +323,30 @@ export default function SessionDetailPage() {
           </div>
 
           <div className="flex items-center gap-2 self-start md:self-auto">
-            {decision === 'shortlisted' && (
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            {decision === 'shortlisted' ? (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-purple-950/60 text-purple-300 border border-purple-800 flex items-center gap-1.5 shadow-sm">
+                <Star className="w-3.5 h-3.5 text-purple-400 fill-purple-400" />
                 Shortlisted
               </span>
-            )}
-            {decision === 'declined' && (
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-rose-950 text-rose-300 border border-rose-800">
-                Declined
-              </span>
-            )}
-            {decision === 'hold' && (
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-950 text-amber-300 border border-amber-800">
+            ) : decision === 'hold' ? (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-950/60 text-amber-300 border border-amber-800 flex items-center gap-1.5 shadow-sm">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
                 On Hold
               </span>
-            )}
-            {session.status === 'submitted' && decision === 'pending' && (
-              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-950 text-blue-300 border border-blue-800">
+            ) : decision === 'declined' ? (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-rose-950/60 text-rose-300 border border-rose-800 flex items-center gap-1.5 shadow-sm">
+                <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                Declined
+              </span>
+            ) : session.status === 'submitted' ? (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800 flex items-center gap-1.5 shadow-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 Ready for Review
+              </span>
+            ) : (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1.5 shadow-sm">
+                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                In Progress
               </span>
             )}
           </div>

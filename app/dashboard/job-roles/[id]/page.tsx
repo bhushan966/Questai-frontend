@@ -28,6 +28,7 @@ import {
   Trash2,
   User,
   Link2,
+  XCircle,
 } from 'lucide-react';
 
 interface JobRole {
@@ -129,22 +130,35 @@ export default function JobRoleSessionsPage() {
           } catch {}
         }
 
-        // Enrich sessions with saved candidate names & submitted state
+        // Enrich sessions with saved candidate names, submitted state & evaluations
         let candidateNameMap: Record<string, string> = {};
         let submittedSessionsMap: Record<string, boolean> = {};
+        let evaluationsMap: Record<string, any> = {};
         if (typeof window !== 'undefined') {
           try {
             candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
             submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+            evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
           } catch {}
         }
 
         const rawList = Array.isArray(sessionsData) ? sessionsData : [];
-        const enriched = rawList.map((s: SessionSummary) => ({
-          ...s,
-          candidate_name: s.candidate_name || candidateNameMap[s.id],
-          status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
-        }));
+        const enriched = rawList.map((s: SessionSummary) => {
+          const localEval = evaluationsMap[s.id];
+          const rating = s.rating || (localEval ? {
+            technical: localEval.technical,
+            communication: localEval.communication,
+            problem_solving: localEval.problem_solving,
+            decision: localEval.decision,
+          } : undefined);
+
+          return {
+            ...s,
+            candidate_name: s.candidate_name || candidateNameMap[s.id],
+            status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
+            rating,
+          };
+        });
 
         setSessions(enriched);
         setLoading(false);
@@ -281,7 +295,7 @@ export default function JobRoleSessionsPage() {
         modeTitle,
       });
 
-      // Refresh candidate list and enrich with candidate name and submission status
+      // Refresh candidate list and enrich with candidate name, submission status & evaluations
       const listUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/${id}/sessions` : `${API_URL}/job-roles/${id}/sessions`;
       authedFetch(listUrl)
         .then((r) => (r.ok ? r.json() : []))
@@ -289,17 +303,30 @@ export default function JobRoleSessionsPage() {
           const raw = Array.isArray(data) ? data : [];
           let candidateNameMap: Record<string, string> = {};
           let submittedSessionsMap: Record<string, boolean> = {};
+          let evaluationsMap: Record<string, any> = {};
           if (typeof window !== 'undefined') {
             try {
               candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
               submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+              evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
             } catch {}
           }
-          const enriched = raw.map((s: SessionSummary) => ({
-            ...s,
-            candidate_name: s.candidate_name || candidateNameMap[s.id],
-            status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
-          }));
+          const enriched = raw.map((s: SessionSummary) => {
+            const localEval = evaluationsMap[s.id];
+            const rating = s.rating || (localEval ? {
+              technical: localEval.technical,
+              communication: localEval.communication,
+              problem_solving: localEval.problem_solving,
+              decision: localEval.decision,
+            } : undefined);
+
+            return {
+              ...s,
+              candidate_name: s.candidate_name || candidateNameMap[s.id],
+              status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
+              rating,
+            };
+          });
           setSessions(enriched);
         })
         .catch(() => null);
@@ -665,8 +692,10 @@ export default function JobRoleSessionsPage() {
               {filteredSessions.map((s) => {
                 const displayName = s.candidate_name || `Candidate ${s.candidate_id.slice(0, 8)}`;
                 const isSubmitted = s.status === 'submitted';
-                const isShortlisted = s.rating?.decision === 'shortlisted';
-                const isDeclined = s.rating?.decision === 'declined';
+                const decision = s.rating?.decision;
+                const isShortlisted = decision === 'shortlisted';
+                const isOnHold = decision === 'hold';
+                const isDeclined = decision === 'declined';
                 const isConversational = s.mode === 'conversational';
 
                 return (
@@ -710,16 +739,22 @@ export default function JobRoleSessionsPage() {
 
                     <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800">
                       {isShortlisted ? (
-                        <span className="text-xs px-2.5 py-1 rounded-full border bg-purple-950/60 text-purple-300 border-purple-800 font-semibold flex items-center gap-1">
+                        <span className="text-xs px-2.5 py-1 rounded-full border bg-purple-950/60 text-purple-300 border-purple-800 font-semibold flex items-center gap-1 shadow-sm">
                           <Star className="w-3 h-3 text-purple-400 fill-purple-400" />
                           Shortlisted
                         </span>
+                      ) : isOnHold ? (
+                        <span className="text-xs px-2.5 py-1 rounded-full border bg-amber-950/60 text-amber-300 border-amber-800 font-semibold flex items-center gap-1 shadow-sm">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          On Hold
+                        </span>
                       ) : isDeclined ? (
-                        <span className="text-xs px-2.5 py-1 rounded-full border bg-rose-950/60 text-rose-300 border-rose-800 font-medium">
+                        <span className="text-xs px-2.5 py-1 rounded-full border bg-rose-950/60 text-rose-300 border-rose-800 font-semibold flex items-center gap-1 shadow-sm">
+                          <XCircle className="w-3 h-3 text-rose-400" />
                           Declined
                         </span>
                       ) : isSubmitted ? (
-                        <span className="text-xs px-2.5 py-1 rounded-full border bg-emerald-950/60 text-emerald-300 border-emerald-800 font-medium flex items-center gap-1">
+                        <span className="text-xs px-2.5 py-1 rounded-full border bg-emerald-950/60 text-emerald-300 border-emerald-800 font-medium flex items-center gap-1 shadow-sm">
                           <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                           Ready for Review
                         </span>
