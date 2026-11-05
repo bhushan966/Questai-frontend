@@ -81,7 +81,7 @@ export default function NewJobRolePage() {
     setSubmitting(true);
     setError(null);
 
-    const newRoleId = `role-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    let newRoleId = `role-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const newJobRole = {
       id: newRoleId,
       title: title.trim(),
@@ -102,13 +102,35 @@ export default function NewJobRolePage() {
       }
     }
 
-    // 2. Sync to server API in background without blocking
+    // 2. Sync to server API (FastAPI backend on Render or fallback)
     try {
-      await authedFetch(`${API_URL}/job-roles`, {
+      const postUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/` : `${API_URL}/job-roles`;
+      const res = await authedFetch(postUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newJobRole),
+        body: JSON.stringify({
+          title: newJobRole.title,
+          description: newJobRole.description,
+          skills_required: newJobRole.skills_required,
+        }),
       });
+
+      if (res && res.ok) {
+        const createdRole = await res.json().catch(() => null);
+        if (createdRole?.id) {
+          newRoleId = String(createdRole.id);
+          newJobRole.id = newRoleId;
+          // Update local storage with real backend UUID
+          if (typeof window !== 'undefined') {
+            try {
+              const stored = localStorage.getItem('questai_saved_roles');
+              const roles = stored ? JSON.parse(stored) : [];
+              const updated = [newJobRole, ...roles.filter((r: any) => r.id !== newRoleId && r.title !== newJobRole.title)];
+              localStorage.setItem('questai_saved_roles', JSON.stringify(updated));
+            } catch {}
+          }
+        }
+      }
     } catch (syncErr) {
       console.warn('Backend sync deferred:', syncErr);
     }

@@ -85,7 +85,8 @@ export function GenerateLinkModal({
     const candidateId = crypto.randomUUID();
 
     try {
-      const res = await fetch(`${API_URL}/sessions`, {
+      const sessionUrl = API_URL.startsWith('http') ? `${API_URL}/sessions/` : `${API_URL}/sessions`;
+      const res = await fetch(sessionUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

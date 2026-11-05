@@ -83,9 +83,11 @@ export default function DashboardPage() {
       }
 
       try {
+        const rolesUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/` : `${API_URL}/job-roles`;
+        const sessionsUrl = API_URL.startsWith('http') ? `${API_URL}/sessions/` : `${API_URL}/sessions`;
         const [rolesRes, sessionsRes] = await Promise.all([
-          authedFetch(`${API_URL}/job-roles`).catch(() => null),
-          fetch(`${API_URL}/sessions`).catch(() => null),
+          authedFetch(rolesUrl).catch(() => null),
+          fetch(sessionsUrl).catch(() => null),
         ]);
 
         let apiRoles: JobRole[] = [];
@@ -148,11 +150,23 @@ export default function DashboardPage() {
     };
 
     try {
-      await authedFetch(`${API_URL}/job-roles`, {
+      const postUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/` : `${API_URL}/job-roles`;
+      const res = await authedFetch(postUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(duplicated),
+        body: JSON.stringify({
+          title: duplicated.title,
+          description: duplicated.description,
+          skills_required: duplicated.skills_required,
+        }),
       });
+
+      if (res && res.ok) {
+        const createdRole = await res.json().catch(() => null);
+        if (createdRole?.id) {
+          duplicated.id = String(createdRole.id);
+        }
+      }
 
       if (typeof window !== 'undefined') {
         try {
