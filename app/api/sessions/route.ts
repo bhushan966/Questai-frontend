@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Session, Answer, persistMockStore } from '@/lib/mockStore';
+import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 // Helper to clean up any duplicate ghost sessions
 function cleanDuplicateSessions(sessions: Session[]): Session[] {
@@ -14,7 +15,6 @@ function cleanDuplicateSessions(sessions: Session[]): Session[] {
       seenCandidateKeys.set(key, sess);
       toKeep.push(sess);
     } else {
-      // If one is submitted and the other is not_started, keep the submitted one
       if (sess.status === 'submitted' && existing.status !== 'submitted') {
         const idx = toKeep.indexOf(existing);
         if (idx !== -1) {
@@ -22,7 +22,6 @@ function cleanDuplicateSessions(sessions: Session[]): Session[] {
         }
         seenCandidateKeys.set(key, sess);
       }
-      // Otherwise skip the duplicate
     }
   }
 
@@ -30,6 +29,25 @@ function cleanDuplicateSessions(sessions: Session[]): Session[] {
 }
 
 export async function GET() {
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        // Merge with local mockStore
+        const merged = cleanDuplicateSessions([...data, ...mockStore.sessions]);
+        mockStore.sessions = merged;
+        return NextResponse.json(merged);
+      }
+    } catch (err) {
+      console.warn('[Supabase DB] Error querying sessions table:', err);
+    }
+  }
+
   const cleaned = cleanDuplicateSessions(mockStore.sessions);
   if (cleaned.length !== mockStore.sessions.length) {
     mockStore.sessions = cleaned;
@@ -78,9 +96,30 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
     };
 
+    // Persist session to Supabase
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        await supabase.from('sessions').upsert([
+          {
+            id: newSession.id,
+            job_role_id: newSession.job_role_id,
+            candidate_id: newSession.candidate_id,
+            candidate_name: newSession.candidate_name,
+            question_source: newSession.question_source,
+            mode: newSession.mode,
+            status: newSession.status,
+            created_at: newSession.created_at,
+          },
+        ]);
+      } catch (err) {
+        console.warn('[Supabase DB] Error inserting session:', err);
+      }
+    }
+
     mockStore.sessions.unshift(newSession);
 
-    // If recorded mode, pre-populate questions
+    // If recorded mode, pre-populate questions & answers
     if (newSession.mode !== 'conversational') {
       let questionsForRole = mockStore.questions.filter(
         (q) => q.job_role_id === job_role_id && q.generated_by === (question_source || 'ai')
@@ -104,6 +143,7 @@ export async function POST(request: Request) {
         questionsForRole = [fallbackQ];
       }
 
+      const answersToInsert: Answer[] = [];
       questionsForRole.forEach((q, idx) => {
         const answer: Answer = {
           id: `ans-${sessionId}-${idx + 1}`,
@@ -118,7 +158,27 @@ export async function POST(request: Request) {
           submitted_at: null,
         };
         mockStore.answers.push(answer);
+        answersToInsert.push(answer);
       });
+
+      if (supabase && answersToInsert.length > 0) {
+        try {
+          await supabase.from('answers').upsert(
+            answersToInsert.map((a) => ({
+              id: a.id,
+              session_id: a.session_id,
+              question_id: a.question_id,
+              question_text: a.question_text,
+              think_seconds: a.think_seconds,
+              answer_seconds: a.answer_seconds,
+              status: a.status,
+              created_at: new Date().toISOString(),
+            }))
+          );
+        } catch {
+          // Fallback
+        }
+      }
     }
 
     persistMockStore();

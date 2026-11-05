@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Question, persistMockStore } from '@/lib/mockStore';
+import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 export async function POST(
   request: Request,
@@ -54,11 +55,26 @@ export async function POST(
     },
   ];
 
-  // Remove existing AI questions for this role and add the new ones
+  // Remove existing AI questions for this role and add the new ones in mockStore
   mockStore.questions = mockStore.questions.filter(
     (q) => !(q.job_role_id === id && q.generated_by === 'ai')
   );
   mockStore.questions.push(...generatedQuestions);
+
+  // Sync to Supabase
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('questions')
+        .delete()
+        .eq('job_role_id', id)
+        .eq('generated_by', 'ai');
+      await supabase.from('questions').upsert(generatedQuestions);
+    } catch (err) {
+      console.warn('[Supabase DB] Error syncing generated questions:', err);
+    }
+  }
 
   persistMockStore();
 
@@ -68,4 +84,3 @@ export async function POST(
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204 });
 }
-

@@ -1,11 +1,31 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
+import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 export async function GET(
   _request: Request,
   props: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await props.params;
+
+  // 1. Try fetching from Supabase DB
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      const { data: dbAnswers, error } = await supabase
+        .from('answers')
+        .select('*')
+        .eq('session_id', sessionId);
+
+      if (!error && Array.isArray(dbAnswers) && dbAnswers.length > 0) {
+        return NextResponse.json(dbAnswers);
+      }
+    } catch (err) {
+      console.warn('[Supabase DB] Error querying answers table:', err);
+    }
+  }
+
+  // 2. Fallback to local store
   let answers = mockStore.answers.filter((a) => a.session_id === sessionId);
 
   if (answers.length === 0) {

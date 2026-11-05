@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
+import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 export async function POST(
   _request: Request,
@@ -29,6 +30,26 @@ export async function POST(
     ans.status = 'completed';
     if (!ans.video_url) {
       ans.video_url = `/api/sessions/${sessionId}/answers/${ans.id}/video`;
+    }
+  }
+
+  // Sync to Supabase
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('sessions')
+        .update({ status: 'submitted' })
+        .eq('id', sessionId);
+
+      if (sessionAnswers.length > 0) {
+        await supabase
+          .from('answers')
+          .update({ status: 'completed' })
+          .eq('session_id', sessionId);
+      }
+    } catch (err) {
+      console.warn('[Supabase DB] Error marking session submitted:', err);
     }
   }
 

@@ -25,10 +25,10 @@ export async function GET() {
       message: 'Supabase environment variables (NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY) are missing in Vercel settings.',
       instructions: [
         'Open your Vercel Project -> Settings -> Environment Variables.',
-        'Add NEXT_PUBLIC_SUPABASE_URL with your Supabase Project URL (e.g. https://xyz.supabase.co).',
-        'Add NEXT_PUBLIC_SUPABASE_ANON_KEY with your Supabase anon/public key.',
-        'Optional: Add SUPABASE_SERVICE_ROLE_KEY with your Supabase service_role key to allow server-side bucket auto-creation.',
-        'CRITICAL: Trigger a Redeploy in Vercel so Next.js embeds the NEXT_PUBLIC_ variables into the build bundle.',
+        'Add NEXT_PUBLIC_SUPABASE_URL (Type: Config) with your Supabase Project URL (e.g. https://xyz.supabase.co).',
+        'Add NEXT_PUBLIC_SUPABASE_ANON_KEY (Type: Config) with your Supabase anon/public key.',
+        'Optional: Add SUPABASE_SERVICE_ROLE_KEY (Type: Sensitive) with your Supabase service_role key.',
+        'CRITICAL: Trigger a Redeploy in Vercel so Next.js embeds the variables into the production bundle.',
       ],
     });
   }
@@ -40,17 +40,32 @@ export async function GET() {
   let bucketExists = false;
   let canUpload = false;
   let autoCreated = false;
+  const tablesExist = {
+    job_roles: false,
+    sessions: false,
+    answers: false,
+  };
   let errorMessage: string | null = null;
 
   try {
-    // 1. Check if the 'interview-videos' bucket exists
+    // 1. Check if the database tables exist
+    const { error: rolesErr } = await client.from('job_roles').select('id').limit(1);
+    tablesExist.job_roles = !rolesErr;
+
+    const { error: sessErr } = await client.from('sessions').select('id').limit(1);
+    tablesExist.sessions = !sessErr;
+
+    const { error: ansErr } = await client.from('answers').select('id').limit(1);
+    tablesExist.answers = !ansErr;
+
+    // 2. Check if the 'interview-videos' bucket exists
     const { data: buckets, error: listError } = await client.storage.listBuckets();
 
     if (!listError && Array.isArray(buckets)) {
       bucketExists = buckets.some((b) => b.name === 'interview-videos' || b.id === 'interview-videos');
     }
 
-    // 2. If bucket doesn't exist, try auto-creating it (works if service role key is provided)
+    // 3. If bucket doesn't exist, try auto-creating it (works if service role key is provided)
     if (!bucketExists && isServiceKeySet) {
       try {
         const { error: createErr } = await client.storage.createBucket('interview-videos', {
@@ -68,7 +83,7 @@ export async function GET() {
       }
     }
 
-    // 3. Test a tiny probe upload to verify write permission
+    // 4. Test a tiny probe upload to verify write permission
     if (bucketExists) {
       try {
         const probeContent = Buffer.from('probe');
@@ -82,7 +97,6 @@ export async function GET() {
 
         if (!uploadErr) {
           canUpload = true;
-          // Clean up the probe file
           await client.storage.from('interview-videos').remove([probePath]).catch(() => null);
         } else {
           errorMessage = `Bucket exists but upload failed: ${uploadErr.message}`;
@@ -96,20 +110,19 @@ export async function GET() {
   }
 
   const instructions: string[] = [];
+  const allTablesOk = tablesExist.job_roles && tablesExist.sessions && tablesExist.answers;
+
+  if (!allTablesOk) {
+    instructions.push('DATABASE TABLES NEED TO BE CREATED: Open Supabase Dashboard -> SQL Editor, copy and run the SQL from supabase_setup.sql in this project to create job_roles, sessions, and answers tables.');
+  }
+
   if (!hasNextPublicUrl || !hasNextPublicAnon) {
-    instructions.push('IMPORTANT: In Vercel, add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (with NEXT_PUBLIC_ prefix) so the browser client bundle can access Supabase directly, then trigger a Redeploy.');
+    instructions.push('IMPORTANT: In Vercel, add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (with NEXT_PUBLIC_ prefix and Type: Config), then trigger a Redeploy.');
   }
   if (!bucketExists) {
-    instructions.push('1. Open your Supabase Dashboard at https://supabase.com/dashboard');
-    instructions.push('2. Click on "Storage" in the left sidebar');
-    instructions.push('3. Click "New Bucket" and name it EXACTLY: interview-videos');
-    instructions.push('4. Toggle the switch "Public bucket" to ON (this allows candidate videos to be viewed by recruiters)');
-    instructions.push('5. Click "Save bucket"');
+    instructions.push('STORAGE BUCKET MISSING: In Supabase -> Storage, create a bucket named "interview-videos" and toggle "Public bucket" to ON.');
   } else if (!canUpload) {
-    instructions.push('Bucket "interview-videos" was found, but upload permission was denied.');
-    instructions.push('1. Go to Supabase -> Storage -> interview-videos -> Settings / Policies');
-    instructions.push('2. Ensure "Public bucket" is ON, or add an INSERT policy for anon/authenticated users');
-    instructions.push('3. Or add SUPABASE_SERVICE_ROLE_KEY to your Vercel Environment Variables so the server can upload securely.');
+    instructions.push('STORAGE PERMISSION: Storage bucket "interview-videos" was found, but upload permission was denied. Run the storage RLS policy in supabase_setup.sql or provide SUPABASE_SERVICE_ROLE_KEY.');
   }
 
   return NextResponse.json({
@@ -121,7 +134,9 @@ export async function GET() {
     bucketName: 'interview-videos',
     autoCreated,
     canUpload,
-    status: canUpload ? 'ready' : bucketExists ? 'permission_issue' : 'bucket_missing',
+    tables: tablesExist,
+    allTablesReady: allTablesOk,
+    status: canUpload && allTablesOk ? 'ready' : !allTablesOk ? 'tables_missing' : bucketExists ? 'permission_issue' : 'bucket_missing',
     errorMessage,
     instructions,
   });

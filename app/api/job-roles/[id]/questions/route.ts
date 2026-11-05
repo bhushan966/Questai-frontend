@@ -1,11 +1,30 @@
 import { NextResponse } from 'next/server';
-import { mockStore, Question } from '@/lib/mockStore';
+import { mockStore, Question, persistMockStore } from '@/lib/mockStore';
+import { getSupabaseServerClient } from '@/lib/supabaseServer';
 
 export async function GET(
   _request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
+
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('job_role_id', id)
+        .order('order_index', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return NextResponse.json(data);
+      }
+    } catch {
+      // fallback
+    }
+  }
+
   const questions = mockStore.questions
     .filter((q) => q.job_role_id === id)
     .sort((a, b) => a.order_index - b.order_index);
@@ -29,7 +48,18 @@ export async function POST(
       think_seconds: 30,
       answer_seconds: Number(body.answer_seconds) || 90,
     };
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        await supabase.from('questions').upsert([newQuestion]);
+      } catch (err) {
+        console.warn('[Supabase DB] Error inserting question:', err);
+      }
+    }
+
     mockStore.questions.push(newQuestion);
+    persistMockStore();
     return NextResponse.json(newQuestion, { status: 201 });
   } catch {
     return NextResponse.json({ detail: 'Failed to add question' }, { status: 400 });

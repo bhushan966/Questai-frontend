@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
-import { createClient } from '@supabase/supabase-js';
+import { getSupabaseServerClient } from '@/lib/supabaseServer';
 import fs from 'fs';
 import path from 'path';
 
@@ -57,6 +57,7 @@ export async function POST(
       : `/api/sessions/${sessionId}/answers/${answerId}/video`;
 
     let supabaseUploaded = false;
+    const supabase = getSupabaseServerClient();
 
     if (file && typeof file === 'object' && 'arrayBuffer' in file) {
       try {
@@ -82,32 +83,22 @@ export async function POST(
           // Ignore read-only filesystem restrictions on serverless environments
         }
 
-        // 3. Guaranteed server-side Supabase storage upload if configured
-        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-        const sbKey =
-          process.env.SUPABASE_SERVICE_ROLE_KEY ||
-          process.env.SUPABASE_SERVICE_KEY ||
-          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-          process.env.SUPABASE_ANON_KEY ||
-          process.env.SUPABASE_KEY;
-        let supabaseDiagnostic = '';
-
-        if (sbUrl && sbKey && !sbUrl.includes('placeholder')) {
+        // 3. Persist video file directly to Supabase Storage
+        if (supabase) {
           try {
-            const sbAdmin = createClient(sbUrl, sbKey);
             const storagePath = `${sessionId}/${answerId}.webm`;
 
-            // Test or attempt bucket creation if using service key
-            if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
-              try {
-                await sbAdmin.storage.createBucket('interview-videos', {
-                  public: true,
-                  fileSizeLimit: 104857600,
-                }).catch(() => null);
-              } catch {}
+            // Auto-create bucket if missing
+            try {
+              await supabase.storage.createBucket('interview-videos', {
+                public: true,
+                fileSizeLimit: 104857600, // 100MB
+              });
+            } catch {
+              // Ignore if bucket already exists
             }
 
-            const { data: uploadData, error: sbErr } = await sbAdmin.storage
+            const { data: uploadData, error: sbErr } = await supabase.storage
               .from('interview-videos')
               .upload(storagePath, buffer, {
                 contentType: 'video/webm',
@@ -115,21 +106,19 @@ export async function POST(
               });
 
             if (!sbErr && uploadData) {
-              const { data: pubData } = sbAdmin.storage
+              const { data: pubData } = supabase.storage
                 .from('interview-videos')
                 .getPublicUrl(storagePath);
               if (pubData?.publicUrl) {
                 finalVideoUrl = pubData.publicUrl;
                 supabaseUploaded = true;
-                console.log(`[Supabase Storage Success] Stored video at: ${finalVideoUrl}`);
+                console.log(`[Supabase Storage Success] Stored video in Supabase at: ${finalVideoUrl}`);
               }
             } else if (sbErr) {
-              supabaseDiagnostic = sbErr.message || 'Supabase upload error';
-              console.warn('[Supabase Storage Warning]:', supabaseDiagnostic);
+              console.warn('[Supabase Storage Warning]:', sbErr.message);
             }
           } catch (sbEx: any) {
-            supabaseDiagnostic = sbEx?.message || 'Supabase storage exception';
-            console.warn('[Supabase Storage Exception]:', supabaseDiagnostic);
+            console.warn('[Supabase Storage Exception]:', sbEx?.message);
           }
         }
       } catch (fileErr) {
@@ -142,6 +131,29 @@ export async function POST(
     answer.video_url = finalVideoUrl;
     answer.status = 'completed';
     answer.submitted_at = new Date().toISOString();
+
+    // 4. CRITICAL: Persist answer record & video_url directly into Supabase Database `answers` table
+    if (supabase) {
+      try {
+        await supabase.from('answers').upsert([
+          {
+            id: answer.id,
+            session_id: answer.session_id,
+            question_id: answer.question_id,
+            question_text: answer.question_text,
+            think_seconds: answer.think_seconds,
+            answer_seconds: answer.answer_seconds,
+            status: answer.status,
+            video_url: finalVideoUrl,
+            transcript: answer.transcript,
+            submitted_at: answer.submitted_at,
+          },
+        ]);
+        console.log(`[Supabase DB Success] Saved answer & video URL to Supabase answers table: ${answer.id}`);
+      } catch (dbErr) {
+        console.warn('[Supabase DB Warning] Error saving answer to Supabase DB:', dbErr);
+      }
+    }
 
     persistMockStore();
     return NextResponse.json({
