@@ -82,10 +82,23 @@ export default function DashboardPage() {
             }
           }
 
+          const deletedSet = new Set<string>();
+          deletedRoleIds.forEach((id) => {
+            const norm = String(id).toLowerCase().trim();
+            deletedSet.add(norm);
+            deletedSet.add(norm.replace(/^role-/, ''));
+          });
+
           const savedSessionsStored = localStorage.getItem('questai_saved_sessions');
           if (savedSessionsStored) {
             const parsedSessions = JSON.parse(savedSessionsStored);
-            if (Array.isArray(parsedSessions)) localSavedSessions = parsedSessions;
+            if (Array.isArray(parsedSessions)) {
+              localSavedSessions = parsedSessions.filter((s: any) => {
+                if (!s || !s.job_role_id) return true;
+                const sessRoleId = String(s.job_role_id).toLowerCase().trim();
+                return !deletedSet.has(sessRoleId) && !deletedSet.has(sessRoleId.replace(/^role-/, ''));
+              });
+            }
           }
 
           submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
@@ -99,12 +112,18 @@ export default function DashboardPage() {
             });
             Object.keys(evaluationsMap).forEach((sessId) => {
               const ev = evaluationsMap[sessId];
+              if (ev?.job_role_id) {
+                const evRoleId = String(ev.job_role_id).toLowerCase().trim();
+                if (deletedSet.has(evRoleId) || deletedSet.has(evRoleId.replace(/^role-/, ''))) {
+                  return; // Skip evaluations of deleted roles
+                }
+              }
               const existing = instantSessionsMap.get(sessId);
               if (existing) {
                 existing.rating = existing.rating || { decision: ev.decision };
                 if (ev.decision) existing.status = 'submitted';
                 if (!existing.job_role_id && ev.job_role_id) existing.job_role_id = ev.job_role_id;
-              } else if (ev.job_role_id) {
+              } else if (ev?.job_role_id) {
                 instantSessionsMap.set(sessId, {
                   id: sessId,
                   job_role_id: ev.job_role_id,
@@ -196,17 +215,30 @@ export default function DashboardPage() {
         });
 
         // Ensure any locally evaluated sessions are accounted for
+        const deletedSet = new Set<string>();
+        deletedRoleIds.forEach((id) => {
+          const norm = String(id).toLowerCase().trim();
+          deletedSet.add(norm);
+          deletedSet.add(norm.replace(/^role-/, ''));
+        });
+
         Object.keys(evaluationsMap).forEach((sessId) => {
           const ev = evaluationsMap[sessId];
+          if (ev?.job_role_id) {
+            const evRoleId = String(ev.job_role_id).toLowerCase().trim();
+            if (deletedSet.has(evRoleId) || deletedSet.has(evRoleId.replace(/^role-/, ''))) {
+              return; // Skip evaluations of deleted roles
+            }
+          }
           const existing = sessionsMap.get(sessId);
           if (existing) {
             existing.rating = existing.rating || { decision: ev.decision };
             if (ev.decision) existing.status = 'submitted';
             if (!existing.job_role_id && ev.job_role_id) existing.job_role_id = ev.job_role_id;
-          } else {
+          } else if (ev?.job_role_id) {
             sessionsMap.set(sessId, {
               id: sessId,
-              job_role_id: ev.job_role_id || (combinedRoles[0]?.id || ''),
+              job_role_id: ev.job_role_id,
               status: 'submitted',
               rating: { decision: ev.decision },
             });
@@ -303,14 +335,35 @@ export default function DashboardPage() {
     });
   }, [jobRoles, searchQuery]);
 
-  // Metric Computations
+  // Active roles set for lookup (normalized with and without 'role-' prefix)
+  const activeRoleIds = useMemo(() => {
+    const set = new Set<string>();
+    jobRoles.forEach((r) => {
+      const idStr = String(r.id).toLowerCase().trim();
+      set.add(idStr);
+      set.add(idStr.replace(/^role-/, ''));
+    });
+    return set;
+  }, [jobRoles]);
+
+  // Filter sessions so metrics ONLY account for currently active, non-deleted job roles!
+  const activeSessions = useMemo(() => {
+    return sessions.filter((s) => {
+      if (!s || !s.job_role_id) return false;
+      const sessRoleId = String(s.job_role_id).toLowerCase().trim();
+      const sessRoleClean = sessRoleId.replace(/^role-/, '');
+      return activeRoleIds.has(sessRoleId) || (sessRoleClean.length > 0 && activeRoleIds.has(sessRoleClean));
+    });
+  }, [sessions, activeRoleIds]);
+
+  // Metric Computations based strictly on active job roles
   const totalRoles = jobRoles.length;
-  const completedSessions = sessions.filter((s) => s.status === 'submitted').length;
-  const readyForReviewCount = sessions.filter(
+  const completedSessions = activeSessions.filter((s) => s.status === 'submitted').length;
+  const readyForReviewCount = activeSessions.filter(
     (s) => s.status === 'submitted' && (!s.rating?.decision || s.rating.decision === 'pending')
   ).length;
-  const inProgressSessions = sessions.filter((s) => s.status !== 'submitted').length;
-  const shortlistedCount = sessions.filter((s) => s.rating?.decision === 'shortlisted').length;
+  const inProgressSessions = activeSessions.filter((s) => s.status !== 'submitted').length;
+  const shortlistedCount = activeSessions.filter((s) => s.rating?.decision === 'shortlisted').length;
 
   if (authLoading) {
     return (
@@ -643,8 +696,23 @@ export default function DashboardPage() {
         onClose={() => setRoleToDelete(null)}
         role={roleToDelete}
         onDeleted={(deletedId) => {
-          setJobRoles((prev) => prev.filter((r) => r.id !== deletedId));
-          setActionNotice('Job role deleted successfully');
+          const deletedIdStr = String(deletedId).toLowerCase().trim();
+          const deletedIdClean = deletedIdStr.replace(/^role-/, '');
+
+          setJobRoles((prev) =>
+            prev.filter((r) => {
+              const rId = String(r.id).toLowerCase().trim();
+              return rId !== deletedIdStr && rId.replace(/^role-/, '') !== deletedIdClean;
+            })
+          );
+          setSessions((prev) =>
+            prev.filter((s) => {
+              if (!s.job_role_id) return true;
+              const sRoleId = String(s.job_role_id).toLowerCase().trim();
+              return sRoleId !== deletedIdStr && sRoleId.replace(/^role-/, '') !== deletedIdClean;
+            })
+          );
+          setActionNotice('Job role and associated candidate sessions deleted successfully');
           setTimeout(() => setActionNotice(null), 3000);
         }}
       />

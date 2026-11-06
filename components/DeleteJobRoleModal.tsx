@@ -69,6 +69,38 @@ export function DeleteJobRoleModal({
             deletedList.push(role.id);
             localStorage.setItem('questai_deleted_roles', JSON.stringify(deletedList));
           }
+
+          // Clean up sessions and evaluations associated with this deleted role
+          const targetId = String(role.id).toLowerCase().trim();
+          const targetClean = targetId.replace(/^role-/, '');
+
+          const sessStored = localStorage.getItem('questai_saved_sessions');
+          if (sessStored) {
+            const list = JSON.parse(sessStored);
+            if (Array.isArray(list)) {
+              const cleaned = list.filter((s: any) => {
+                if (!s?.job_role_id) return true;
+                const sRoleId = String(s.job_role_id).toLowerCase().trim();
+                return sRoleId !== targetId && sRoleId.replace(/^role-/, '') !== targetClean;
+              });
+              localStorage.setItem('questai_saved_sessions', JSON.stringify(cleaned));
+            }
+          }
+
+          const evStored = localStorage.getItem('questai_session_evaluations');
+          if (evStored) {
+            const evMap = JSON.parse(evStored);
+            Object.keys(evMap).forEach((sessId) => {
+              const ev = evMap[sessId];
+              if (ev?.job_role_id) {
+                const evRoleId = String(ev.job_role_id).toLowerCase().trim();
+                if (evRoleId === targetId || evRoleId.replace(/^role-/, '') === targetClean) {
+                  delete evMap[sessId];
+                }
+              }
+            });
+            localStorage.setItem('questai_session_evaluations', JSON.stringify(evMap));
+          }
         } catch {
           // ignore
         }
