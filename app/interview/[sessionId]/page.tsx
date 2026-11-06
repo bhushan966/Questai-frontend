@@ -23,6 +23,7 @@ import {
   Volume2,
   Bot,
   SkipForward,
+  Lock,
 } from 'lucide-react';
 
 type RealPhase =
@@ -33,7 +34,8 @@ type RealPhase =
   | 'recording'
   | 'stopped'
   | 'submitting'
-  | 'complete';
+  | 'complete'
+  | 'already_completed';
 
 type PracticePhase =
   | 'speaking'
@@ -55,6 +57,8 @@ interface Answer {
   think_seconds: number;
   answer_seconds: number;
   status: string;
+  video_url?: string | null;
+  submitted_at?: string | null;
 }
 
 interface SessionData {
@@ -265,6 +269,7 @@ export default function InterviewPage() {
   const [jobRole, setJobRole] = useState<JobRole | null>(null);
   const [answers, setAnswers] = useState<Answer[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [resumeQuestionIndex, setResumeQuestionIndex] = useState<number>(0);
   const [countdown, setCountdown] = useState(0);
   const [uploadProgressStatus, setUploadProgressStatus] = useState<Record<string, 'uploading' | 'uploaded' | 'failed'>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -574,6 +579,23 @@ export default function InterviewPage() {
             });
           });
 
+        // 1. Guard against retaking completed interviews
+        let isAlreadySubmitted = false;
+        if (sess.status === 'submitted' || sess.status === 'completed') {
+          isAlreadySubmitted = true;
+        }
+        if (typeof window !== 'undefined') {
+          try {
+            const submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+            if (submittedMap[sessionId]) isAlreadySubmitted = true;
+          } catch {}
+        }
+
+        if (isAlreadySubmitted) {
+          setPhase('already_completed');
+          return;
+        }
+
         if (sess.mode === 'conversational') {
           const startConversational = async () => {
             let res: Response | null = null;
@@ -613,28 +635,53 @@ export default function InterviewPage() {
           };
 
           fetchInterviewAnswers().then((data) => {
-            if (data && data.length > 0) {
-              setAnswers(data);
-            } else {
-              setAnswers([
-                {
-                  id: `ans-${sessionId}-1`,
-                  question_id: 'q1',
-                  question_text: 'Introduce yourself and share your core experience and strengths.',
-                  think_seconds: 30,
-                  answer_seconds: 90,
-                  status: 'pending',
-                },
-                {
-                  id: `ans-${sessionId}-2`,
-                  question_id: 'q2',
-                  question_text: 'Describe a challenging project problem you solved, your approach, and the final outcome.',
-                  think_seconds: 30,
-                  answer_seconds: 90,
-                  status: 'pending',
-                },
-              ]);
+            const rawAnswers: Answer[] = (data && data.length > 0) ? data : [
+              {
+                id: `ans-${sessionId}-1`,
+                question_id: 'q1',
+                question_text: 'Introduce yourself and share your core experience and strengths.',
+                think_seconds: 30,
+                answer_seconds: 90,
+                status: 'pending',
+              },
+              {
+                id: `ans-${sessionId}-2`,
+                question_id: 'q2',
+                question_text: 'Describe a challenging project problem you solved, your approach, and the final outcome.',
+                think_seconds: 30,
+                answer_seconds: 90,
+                status: 'pending',
+              },
+            ];
+
+            setAnswers(rawAnswers);
+
+            // Compute resume question index if candidate is returning midway
+            const firstUnansweredIdx = rawAnswers.findIndex(
+              (a) => !a.video_url && a.status !== 'uploaded' && a.status !== 'completed'
+            );
+
+            let storedProgressIdx = 0;
+            if (typeof window !== 'undefined') {
+              try {
+                const stored = localStorage.getItem(`questai_progress_${sessionId}`);
+                if (stored !== null) storedProgressIdx = parseInt(stored, 10);
+              } catch {}
             }
+
+            let computedResumeIdx = 0;
+            if (firstUnansweredIdx > 0) {
+              computedResumeIdx = firstUnansweredIdx;
+            } else if (firstUnansweredIdx === -1 && rawAnswers.length > 0) {
+              computedResumeIdx = rawAnswers.length - 1;
+            } else if (storedProgressIdx > 0 && storedProgressIdx < rawAnswers.length) {
+              computedResumeIdx = storedProgressIdx;
+            }
+
+            if (computedResumeIdx > 0 && computedResumeIdx < rawAnswers.length) {
+              setResumeQuestionIndex(computedResumeIdx);
+            }
+
             setPhase('intro');
           });
         }
@@ -849,7 +896,7 @@ export default function InterviewPage() {
     return () => clearTimeout(t);
   }, [practiceCountdown, practicePhase, isPractice]);
 
-  // Transition from Practice directly to Real Interview Question 1
+  // Transition from Practice directly to Real Interview
   const proceedToRealInterview = () => {
     stopSpeaking();
     setIsPractice(false);
@@ -857,35 +904,24 @@ export default function InterviewPage() {
       URL.revokeObjectURL(practiceBlobUrl);
       setPracticeBlobUrl(null);
     }
-    // Direct start to Question 1: AI begins speaking Question 1 immediately!
-    setCurrentIndex(0);
-    const firstQ = answers[0];
-    if (firstQ) {
-      setPhase('speaking');
-      speakText(firstQ.question_text, () => {
-        setPhase('thinking');
-        setCountdown(firstQ.think_seconds || 30);
-      });
-    } else {
-      setPhase('thinking');
-      setCountdown(30);
-    }
+    startRealInterviewFromIntro(resumeQuestionIndex || 0);
   };
 
   // =========================================================================
   // REAL INTERVIEW WORKFLOW (Automatic TTS Reading -> Prep -> Recording)
   // =========================================================================
-  const startRealInterviewFromIntro = () => {
+  const startRealInterviewFromIntro = (targetIndex?: number) => {
     stopSpeaking();
     setIsPractice(false);
-    setCurrentIndex(0);
+    const startIdx = typeof targetIndex === 'number' ? targetIndex : (resumeQuestionIndex || 0);
+    setCurrentIndex(startIdx);
 
-    const firstQ = answers[0];
-    if (firstQ) {
+    const targetQ = answers[startIdx] || answers[0];
+    if (targetQ) {
       setPhase('speaking');
-      speakText(firstQ.question_text, () => {
+      speakText(targetQ.question_text, () => {
         setPhase('thinking');
-        setCountdown(firstQ.think_seconds || 30);
+        setCountdown(targetQ.think_seconds || 30);
       });
     } else {
       setPhase('thinking');
@@ -983,6 +1019,12 @@ export default function InterviewPage() {
     if (currentIndex + 1 < answers.length) {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
+      setResumeQuestionIndex(nextIdx);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`questai_progress_${sessionId}`, String(nextIdx));
+        } catch {}
+      }
       const nextQ = answers[nextIdx];
       setPhase('speaking');
       speakText(nextQ.question_text, () => {
@@ -1035,9 +1077,10 @@ export default function InterviewPage() {
         console.warn('Local submit notice:', localErr);
       }
 
-      // Record submitted tombstone in localStorage so dashboard instantly shows Ready for Review
+      // Record submitted tombstone and clear progress
       if (typeof window !== 'undefined') {
         try {
+          localStorage.removeItem(`questai_progress_${sessionId}`);
           const map = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
           map[sessionId] = true;
           localStorage.setItem('questai_submitted_sessions', JSON.stringify(map));
@@ -1091,6 +1134,14 @@ export default function InterviewPage() {
       setCandidateTurnTranscript('');
 
       if (data.action === 'conclude') {
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem(`questai_progress_${sessionId}`);
+            const map = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+            map[sessionId] = true;
+            localStorage.setItem('questai_submitted_sessions', JSON.stringify(map));
+          } catch {}
+        }
         setPhase('complete');
       } else {
         setCurrentAiPrompt(data.message);
@@ -1370,6 +1421,20 @@ export default function InterviewPage() {
               <span>•</span>
               <span>Video Response</span>
             </div>
+
+            {resumeQuestionIndex > 0 && (
+              <div className="mt-3 p-3.5 bg-blue-950/50 border border-blue-800 rounded-xl flex items-start gap-3 text-xs">
+                <div className="w-7 h-7 rounded-lg bg-blue-900/80 text-blue-300 border border-blue-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="space-y-0.5">
+                  <span className="font-semibold text-white">Resume In-Progress Interview</span>
+                  <p className="text-slate-300 leading-relaxed">
+                    Welcome back! You previously answered {resumeQuestionIndex} of {answers.length} question{answers.length > 1 ? 's' : ''}. Your recorded responses are safely saved on the server. Clicking below will resume directly from Question {resumeQuestionIndex + 1}.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           {loadError && (
@@ -1443,14 +1508,65 @@ export default function InterviewPage() {
             </button>
 
             <button
-              onClick={startRealInterviewFromIntro}
+              onClick={() => startRealInterviewFromIntro(resumeQuestionIndex)}
               disabled={!!cameraError}
               className="flex-1 w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-semibold rounded-xl text-sm sm:text-base transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
             >
               <Play className="w-4 h-4 fill-white" />
-              <span>Start Real Interview</span>
+              <span>
+                {resumeQuestionIndex > 0
+                  ? `Resume Interview (Question ${resumeQuestionIndex + 1} of ${answers.length})`
+                  : 'Start Real Interview'}
+              </span>
               <ArrowRight className="w-4 h-4" />
             </button>
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  // 4. ALREADY COMPLETED & LOCKED SCREEN (Prevents multiple attempts on completed interview link)
+  if (phase === 'already_completed') {
+    return (
+      <Shell>
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 text-center space-y-5 shadow-2xl animate-in fade-in duration-200">
+          <div className="w-16 h-16 rounded-3xl bg-blue-950/60 text-blue-400 border border-blue-800/80 mx-auto flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <Lock className="w-8 h-8" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-800 text-xs font-semibold text-emerald-300">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Assessment Completed & Locked</span>
+            </div>
+            <h2 className="text-2xl font-bold text-white tracking-tight">Interview Already Completed</h2>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-md mx-auto leading-relaxed">
+              This interview assessment has already been completed and submitted for evaluation. Multiple attempts on the same interview link are not permitted.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 text-left max-w-md mx-auto space-y-2 text-xs">
+            <div className="flex items-center justify-between py-1 border-b border-slate-800/60 text-slate-400">
+              <span>Job Position</span>
+              <span className="font-semibold text-slate-200">{jobRole?.title || 'Job Assessment'}</span>
+            </div>
+            {session?.candidate_name && (
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/60 text-slate-400">
+                <span>Candidate</span>
+                <span className="font-semibold text-slate-200">{session.candidate_name}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between py-1 text-slate-400">
+              <span>Submission Status</span>
+              <span className="font-semibold text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                Submitted to Hiring Team
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2 text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+            If you experienced an unexpected network disconnect or need a retake approved, please contact the recruitment team.
           </div>
         </div>
       </Shell>
