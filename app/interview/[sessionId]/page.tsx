@@ -24,6 +24,8 @@ import {
   Bot,
   SkipForward,
   Lock,
+  Clock,
+  ShieldAlert,
 } from 'lucide-react';
 
 type RealPhase =
@@ -35,7 +37,8 @@ type RealPhase =
   | 'stopped'
   | 'submitting'
   | 'complete'
-  | 'already_completed';
+  | 'already_completed'
+  | 'expired';
 
 type PracticePhase =
   | 'speaking'
@@ -275,6 +278,15 @@ export default function InterviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Expiry & Deadline state
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
+  const [deadlineRemaining, setDeadlineRemaining] = useState<string | null>(null);
+
+  // Tab-Switch & Focus Integrity state
+  const [tabSwitchWarning, setTabSwitchWarning] = useState<string | null>(null);
+  const integrityMapRef = useRef<Record<string, { switches: number; unfocusedSeconds: number }>>({});
+  const unfocusedStartRef = useRef<number | null>(null);
 
   // Dedicated Practice Mode state
   const [isPractice, setIsPractice] = useState(false);
@@ -596,6 +608,41 @@ export default function InterviewPage() {
           return;
         }
 
+        // 2. Guard against expired interview links (Assessment Window Closed)
+        let deadlineIso: string | null = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const expParam = urlParams.get('expires');
+            if (expParam) {
+              deadlineIso = expParam;
+            } else {
+              const deadMap = JSON.parse(localStorage.getItem('questai_session_deadlines') || '{}');
+              if (deadMap[sessionId]) deadlineIso = deadMap[sessionId];
+            }
+          } catch {}
+        }
+
+        if (deadlineIso) {
+          setExpiresAt(deadlineIso);
+          const deadlineDate = new Date(deadlineIso);
+          const now = new Date();
+          if (now > deadlineDate) {
+            setPhase('expired');
+            return;
+          }
+        }
+
+        // 3. Restore previous integrity tracking if returning
+        if (typeof window !== 'undefined') {
+          try {
+            const integrityStore = JSON.parse(localStorage.getItem('questai_session_integrity') || '{}');
+            if (integrityStore[sessionId]) {
+              integrityMapRef.current = integrityStore[sessionId];
+            }
+          } catch {}
+        }
+
         if (sess.mode === 'conversational') {
           const startConversational = async () => {
             let res: Response | null = null;
@@ -692,6 +739,123 @@ export default function InterviewPage() {
         setPhase('intro');
       });
   }, [sessionId]);
+
+  // Active Countdown for Expiry Deadline
+  useEffect(() => {
+    if (!expiresAt) return;
+
+    const updateRemaining = () => {
+      const diff = new Date(expiresAt).getTime() - Date.now();
+      if (diff <= 0) {
+        setDeadlineRemaining('Assessment window expired');
+        if (phase !== 'complete' && phase !== 'already_completed') {
+          setPhase('expired');
+        }
+        return;
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+      if (days > 0) {
+        setDeadlineRemaining(`${days} day${days > 1 ? 's' : ''}, ${hours} hr${hours > 1 ? 's' : ''} left`);
+      } else if (hours > 0) {
+        setDeadlineRemaining(`${hours} hr${hours > 1 ? 's' : ''}, ${minutes} min left`);
+      } else {
+        const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+        setDeadlineRemaining(`${minutes}m ${seconds}s left`);
+      }
+    };
+
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt, phase]);
+
+  // Tab-Switch & Focus Integrity Monitoring (tracks switches & unfocused duration)
+  useEffect(() => {
+    if (isPractice) return;
+    if (phase !== 'thinking' && phase !== 'recording') return;
+    if (!currentAnswer) return;
+
+    const answerId = currentAnswer.id;
+
+    const handleFocusLoss = () => {
+      unfocusedStartRef.current = Date.now();
+
+      const prev = integrityMapRef.current[answerId] || { switches: 0, unfocusedSeconds: 0 };
+      integrityMapRef.current[answerId] = {
+        ...prev,
+        switches: prev.switches + 1,
+      };
+
+      if (typeof window !== 'undefined') {
+        try {
+          const store = JSON.parse(localStorage.getItem('questai_session_integrity') || '{}');
+          store[sessionId] = integrityMapRef.current;
+          localStorage.setItem('questai_session_integrity', JSON.stringify(store));
+        } catch {}
+      }
+
+      setTabSwitchWarning(
+        'Window Focus Alert: Please keep this interview tab active during your response. Focus changes are logged.'
+      );
+    };
+
+    const handleFocusGain = () => {
+      if (unfocusedStartRef.current) {
+        const awaySeconds = Math.max(1, Math.round((Date.now() - unfocusedStartRef.current) / 1000));
+        const prev = integrityMapRef.current[answerId] || { switches: 0, unfocusedSeconds: 0 };
+        integrityMapRef.current[answerId] = {
+          ...prev,
+          unfocusedSeconds: prev.unfocusedSeconds + awaySeconds,
+        };
+        unfocusedStartRef.current = null;
+
+        if (typeof window !== 'undefined') {
+          try {
+            const store = JSON.parse(localStorage.getItem('questai_session_integrity') || '{}');
+            store[sessionId] = integrityMapRef.current;
+            localStorage.setItem('questai_session_integrity', JSON.stringify(store));
+          } catch {}
+        }
+      }
+
+      const timer = setTimeout(() => {
+        setTabSwitchWarning(null);
+      }, 3500);
+      return () => clearTimeout(timer);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleFocusLoss();
+      } else {
+        handleFocusGain();
+      }
+    };
+
+    const onWindowBlur = () => {
+      if (document.visibilityState === 'visible') {
+        handleFocusLoss();
+      }
+    };
+
+    const onWindowFocus = () => {
+      handleFocusGain();
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onWindowBlur);
+    window.addEventListener('focus', onWindowFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onWindowBlur);
+      window.removeEventListener('focus', onWindowFocus);
+    };
+  }, [phase, isPractice, currentAnswer, sessionId]);
 
   // Toggle Camera Track
   const handleToggleCamera = useCallback(() => {
@@ -1414,13 +1578,37 @@ export default function InterviewPage() {
               {jobRole?.description ||
                 'Ensure your camera and microphone are properly framed and tested before entering the interview.'}
             </p>
-            <div className="pt-2 flex items-center gap-4 text-xs text-slate-400">
+            <div className="pt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400">
               <span>{answers.length} Question{answers.length > 1 ? 's' : ''}</span>
               <span>•</span>
               <span>AI Voice Prompts</span>
               <span>•</span>
               <span>Video Response</span>
+              <span>•</span>
+              <span className="text-blue-400 flex items-center gap-1">
+                <ShieldAlert className="w-3.5 h-3.5" />
+                Integrity Monitored
+              </span>
             </div>
+
+            {expiresAt && (
+              <div className="mt-2.5 p-3 bg-amber-950/40 border border-amber-800/70 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-2 text-amber-300 font-medium">
+                  <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Assessment Window Deadline:</span>
+                </span>
+                <span className="font-bold text-amber-300 tabular-nums">
+                  {deadlineRemaining ||
+                    new Date(expiresAt).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                </span>
+              </div>
+            )}
 
             {resumeQuestionIndex > 0 && (
               <div className="mt-3 p-3.5 bg-blue-950/50 border border-blue-800 rounded-xl flex items-start gap-3 text-xs">
@@ -1573,7 +1761,68 @@ export default function InterviewPage() {
     );
   }
 
-  // 4. COMPLETION SCREEN
+  // 5. EXPIRED INTERVIEW LINK SCREEN (Assessment Window Closed)
+  if (phase === 'expired') {
+    return (
+      <Shell>
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-10 text-center space-y-5 shadow-2xl animate-in fade-in duration-200">
+          <div className="w-16 h-16 rounded-3xl bg-amber-950/60 text-amber-400 border border-amber-800/80 mx-auto flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <Clock className="w-8 h-8" />
+          </div>
+          <div className="space-y-1.5">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/80 border border-amber-800 text-xs font-semibold text-amber-300">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Assessment Window Closed</span>
+            </div>
+            <h2 className="text-2xl font-bold text-white tracking-tight">Interview Link Expired</h2>
+            <p className="text-xs sm:text-sm text-slate-300 max-w-md mx-auto leading-relaxed">
+              The submission deadline for this interview assessment has passed. Expired assessment links can no longer be accessed or submitted.
+            </p>
+          </div>
+
+          <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 text-left max-w-md mx-auto space-y-2 text-xs">
+            <div className="flex items-center justify-between py-1 border-b border-slate-800/60 text-slate-400">
+              <span>Job Position</span>
+              <span className="font-semibold text-slate-200">{jobRole?.title || 'Job Assessment'}</span>
+            </div>
+            {session?.candidate_name && (
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/60 text-slate-400">
+                <span>Candidate</span>
+                <span className="font-semibold text-slate-200">{session.candidate_name}</span>
+              </div>
+            )}
+            {expiresAt && (
+              <div className="flex items-center justify-between py-1 border-b border-slate-800/60 text-slate-400">
+                <span>Expiration Deadline</span>
+                <span className="font-semibold text-amber-300">
+                  {new Date(expiresAt).toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between py-1 text-slate-400">
+              <span>Link Status</span>
+              <span className="font-semibold text-red-400 flex items-center gap-1">
+                <span>Closed</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-2 text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+            If you need an extension or a new link to complete this evaluation, please contact your recruiter or hiring team directly.
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  // 6. COMPLETION SCREEN
   if (phase === 'complete') {
     return (
       <Shell>
@@ -1604,11 +1853,26 @@ export default function InterviewPage() {
       <div className="space-y-5">
         {/* Progress header */}
         <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
-          <span>
-            {isConversational ? 'Interactive AI Assessment' : `Question ${currentIndex + 1} of ${answers.length}`}
+          <span className="flex items-center gap-2">
+            <span>{isConversational ? 'Interactive AI Assessment' : `Question ${currentIndex + 1} of ${answers.length}`}</span>
+            <span className="text-[10px] text-emerald-400 font-mono lowercase bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              focus tracked
+            </span>
           </span>
           <span className="text-blue-400">{jobRole?.title || 'QuestAI'}</span>
         </div>
+
+        {/* Tab-Switch / Focus Warning Toast */}
+        {tabSwitchWarning && (
+          <div className="p-3.5 bg-amber-950/90 border border-amber-600 rounded-2xl flex items-center gap-3 text-xs text-amber-200 animate-in fade-in slide-in-from-top-2 shadow-xl shadow-amber-950/60">
+            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+            <div className="flex-1">
+              <span className="font-semibold text-amber-300">Integrity Alert: </span>
+              <span>{tabSwitchWarning}</span>
+            </div>
+          </div>
+        )}
 
         {/* Live Video Camera Frame */}
         <CameraFrame

@@ -22,6 +22,8 @@ import {
   Award,
   FileText,
   XCircle,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface SessionAnswer {
@@ -89,6 +91,10 @@ export default function SessionDetailPage() {
 
   const [copiedTranscriptId, setCopiedTranscriptId] = useState<string | null>(null);
 
+  // Tab-Switch & Focus Integrity data for this session
+  const [integrityData, setIntegrityData] = useState<Record<string, { switches: number; unfocusedSeconds: number }>>({});
+  const [deadlineInfo, setDeadlineInfo] = useState<string | null>(null);
+
   // Video playback speed state
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const videoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
@@ -96,82 +102,153 @@ export default function SessionDetailPage() {
   useEffect(() => {
     if (!user || !id) return;
 
-    // Fetch session details
-    authedFetch(`${API_URL}/sessions/${id}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then(async (sessionData) => {
-        if (!sessionData) {
-          setLoading(false);
-          return;
+    // Fetch session details with multi-source fallback
+    const loadSession = async () => {
+      let sessionData: any = null;
+
+      // 1. Try primary configured API URL
+      try {
+        const res = await authedFetch(`${API_URL}/sessions/${id}`);
+        if (res.ok) {
+          sessionData = await res.json();
         }
-        let candidateNameMap: Record<string, string> = {};
-        let submittedMap: Record<string, boolean> = {};
-        let evaluationsMap: Record<string, any> = {};
-        if (typeof window !== 'undefined') {
+      } catch {}
+
+      // 2. If not found and API_URL was external, fallback to internal Next.js / Supabase API
+      if (!sessionData && API_URL !== '/api') {
+        try {
+          const res = await fetch(`/api/sessions/${id}`);
+          if (res.ok) {
+            sessionData = await res.json();
+          }
+        } catch {}
+      }
+
+      // 3. Fallback to localStorage saved sessions if needed
+      if (!sessionData && typeof window !== 'undefined') {
+        try {
+          const saved = localStorage.getItem('questai_saved_sessions');
+          if (saved) {
+            const list = JSON.parse(saved);
+            sessionData = list.find((s: any) => s.id === id) || null;
+          }
+        } catch {}
+      }
+
+      if (!sessionData) {
+        setLoading(false);
+        return;
+      }
+
+      let candidateNameMap: Record<string, string> = {};
+      let submittedMap: Record<string, boolean> = {};
+      let evaluationsMap: Record<string, any> = {};
+      if (typeof window !== 'undefined') {
+        try {
+          candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+          submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
+          const allIntegrity = JSON.parse(localStorage.getItem('questai_session_integrity') || '{}');
+          if (allIntegrity[id]) {
+            setIntegrityData(allIntegrity[id]);
+          }
+          const allDeadlines = JSON.parse(localStorage.getItem('questai_session_deadlines') || '{}');
+          if (allDeadlines[id]) {
+            setDeadlineInfo(allDeadlines[id]);
+          }
+        } catch {}
+      }
+
+      const localEval = evaluationsMap[id];
+      const effectiveRating = sessionData.rating || (localEval ? {
+        technical: localEval.technical,
+        communication: localEval.communication,
+        problem_solving: localEval.problem_solving,
+        decision: localEval.decision,
+        notes: localEval.notes,
+      } : null);
+
+      const enrichedSession = {
+        ...sessionData,
+        candidate_name: sessionData.candidate_name || candidateNameMap[id],
+        status: submittedMap[id] ? 'submitted' : sessionData.status,
+        rating: effectiveRating,
+      };
+      setSession(enrichedSession);
+
+      // Pre-fill rating state if already evaluated
+      if (effectiveRating) {
+        setTechnicalRating(effectiveRating.technical || 0);
+        setCommunicationRating(effectiveRating.communication || 0);
+        setProblemSolvingRating(effectiveRating.problem_solving || 0);
+        setNotes(effectiveRating.notes || '');
+        setDecision(effectiveRating.decision || 'pending');
+      }
+
+      // Fetch associated role with fallback
+      if (sessionData.job_role_id) {
+        let roleFound: any = null;
+        try {
+          const res = await authedFetch(`${API_URL}/job-roles/${sessionData.job_role_id}`);
+          if (res.ok) roleFound = await res.json();
+        } catch {}
+        if (!roleFound && API_URL !== '/api') {
           try {
-            candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
-            submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
-            evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
+            const res = await fetch(`/api/job-roles/${sessionData.job_role_id}`);
+            if (res.ok) roleFound = await res.json();
           } catch {}
         }
-
-        const localEval = evaluationsMap[id];
-        const effectiveRating = sessionData.rating || (localEval ? {
-          technical: localEval.technical,
-          communication: localEval.communication,
-          problem_solving: localEval.problem_solving,
-          decision: localEval.decision,
-          notes: localEval.notes,
-        } : null);
-
-        const enrichedSession = {
-          ...sessionData,
-          candidate_name: sessionData.candidate_name || candidateNameMap[id],
-          status: submittedMap[id] ? 'submitted' : sessionData.status,
-          rating: effectiveRating,
-        };
-        setSession(enrichedSession);
-
-        // Pre-fill rating state if already evaluated
-        if (effectiveRating) {
-          setTechnicalRating(effectiveRating.technical || 0);
-          setCommunicationRating(effectiveRating.communication || 0);
-          setProblemSolvingRating(effectiveRating.problem_solving || 0);
-          setNotes(effectiveRating.notes || '');
-          setDecision(effectiveRating.decision || 'pending');
+        if (!roleFound && typeof window !== 'undefined') {
+          try {
+            const stored = localStorage.getItem('questai_saved_roles');
+            if (stored) {
+              const rolesList = JSON.parse(stored);
+              roleFound = rolesList.find((r: any) => r.id === sessionData.job_role_id) || null;
+            }
+          } catch {}
         }
+        if (roleFound) setRole(roleFound);
+      }
 
-        // Fetch associated role
-        if (sessionData.job_role_id) {
-          authedFetch(`${API_URL}/job-roles/${sessionData.job_role_id}`)
-            .then((res) => (res.ok ? res.json() : null))
-            .then((roleData) => setRole(roleData));
+      // Fetch either turns or answers based on mode with fallback
+      if (sessionData.mode === 'conversational') {
+        let turnsData: any = null;
+        try {
+          const res = await authedFetch(`${API_URL}/sessions/${id}/turns/recruiter-view`);
+          if (res.ok) turnsData = await res.json();
+        } catch {}
+        if (!turnsData && API_URL !== '/api') {
+          try {
+            const res = await fetch(`/api/sessions/${id}/turns/recruiter-view`);
+            if (res.ok) turnsData = await res.json();
+          } catch {}
         }
-
-        // Fetch either turns or answers based on mode
-        if (sessionData.mode === 'conversational') {
-          authedFetch(`${API_URL}/sessions/${id}/turns/recruiter-view`)
-            .then((res) => (res.ok ? res.json() : null))
-            .then((data) => {
-              if (data?.turns) setTurns(data.turns);
-              if (data?.verdict && !sessionData.verdict) {
-                setSession((prev) => (prev ? { ...prev, verdict: data.verdict } : null));
-              }
-              setLoading(false);
-            });
-        } else {
-          authedFetch(`${API_URL}/sessions/${id}/answers/recruiter-view`)
-            .then((res) => (res.ok ? res.json() : []))
-            .then((data) => {
-              setAnswers(Array.isArray(data) ? data : []);
-              setLoading(false);
-            });
+        if (turnsData?.turns) setTurns(turnsData.turns);
+        if (turnsData?.verdict && !sessionData.verdict) {
+          setSession((prev) => (prev ? { ...prev, verdict: turnsData.verdict } : null));
         }
-      })
-      .catch((err) => {
-        console.error('Failed to load session details:', err);
         setLoading(false);
-      });
+      } else {
+        let answersData: any = null;
+        try {
+          const res = await authedFetch(`${API_URL}/sessions/${id}/answers/recruiter-view`);
+          if (res.ok) answersData = await res.json();
+        } catch {}
+        if (!answersData && API_URL !== '/api') {
+          try {
+            const res = await fetch(`/api/sessions/${id}/answers/recruiter-view`);
+            if (res.ok) answersData = await res.json();
+          } catch {}
+        }
+        setAnswers(Array.isArray(answersData) ? answersData : []);
+        setLoading(false);
+      }
+    };
+
+    loadSession().catch((err) => {
+      console.error('Failed to load session details:', err);
+      setLoading(false);
+    });
   }, [id, user]);
 
   const handleSpeedChange = (speed: number) => {
@@ -259,6 +336,9 @@ export default function SessionDetailPage() {
     return (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1);
   };
 
+  const totalSwitches = Object.values(integrityData).reduce((sum, item) => sum + (item.switches || 0), 0);
+  const totalUnfocusedSeconds = Object.values(integrityData).reduce((sum, item) => sum + (item.unfocusedSeconds || 0), 0);
+
   if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-400 flex flex-col items-center justify-center gap-3">
@@ -320,6 +400,18 @@ export default function SessionDetailPage() {
                 </span>
                 <span>•</span>
                 <span className="font-mono text-[11px] text-slate-500">ID: {session.candidate_id}</span>
+                <span>•</span>
+                {totalSwitches === 0 ? (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full">
+                    <ShieldCheck className="w-3 h-3" />
+                    Full Focus Verified
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-300 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded-full">
+                    <AlertTriangle className="w-3 h-3 text-amber-400" />
+                    {totalSwitches} Tab Switch{totalSwitches > 1 ? 'es' : ''}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -453,24 +545,50 @@ export default function SessionDetailPage() {
                     No answer recordings submitted for this session.
                   </div>
                 ) : (
-                  answers.map((a, i) => (
-                    <div
-                      key={a.id}
-                      className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">
-                            Question {i + 1}
+                  answers.map((a, i) => {
+                    const itemIntegrity = integrityData[a.id];
+                    const switches = itemIntegrity?.switches || 0;
+                    const unfocusedSec = itemIntegrity?.unfocusedSeconds || 0;
+
+                    return (
+                      <div
+                        key={a.id}
+                        className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-xs font-bold text-blue-400 uppercase tracking-wider">
+                                Question {i + 1}
+                              </span>
+
+                              {/* Discrete Focus & Integrity Badge per Question */}
+                              {switches === 0 ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-950/70 border border-emerald-800 text-emerald-300">
+                                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                                  <span>Full Focus Verified</span>
+                                </span>
+                              ) : (
+                                <span
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-950/80 border border-amber-800 text-amber-300"
+                                  title={`Candidate left the interview window ${switches} time(s) for a total of ${unfocusedSec}s`}
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>
+                                    Tab left focus {switches} time{switches > 1 ? 's' : ''} ({unfocusedSec}s away)
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+
+                            <h3 className="text-base font-semibold text-white leading-snug">
+                              {a.question_text}
+                            </h3>
+                          </div>
+                          <span className="text-xs text-slate-500 shrink-0 font-medium bg-slate-950 px-2 py-1 rounded-md border border-slate-800">
+                            ~{a.answer_seconds}s limit
                           </span>
-                          <h3 className="text-base font-semibold text-white leading-snug">
-                            {a.question_text}
-                          </h3>
                         </div>
-                        <span className="text-xs text-slate-500 shrink-0 font-medium bg-slate-950 px-2 py-1 rounded-md border border-slate-800">
-                          ~{a.answer_seconds}s limit
-                        </span>
-                      </div>
 
                       {/* Video Player */}
                       {a.video_url ? (
@@ -537,7 +655,8 @@ export default function SessionDetailPage() {
                         </div>
                       )}
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             )}
@@ -560,6 +679,48 @@ export default function SessionDetailPage() {
                       {calculateAverageScore()}
                     </span>
                     <span className="text-xs text-slate-500">/5</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Focus & Integrity Audit Summary */}
+              <div className="p-3.5 bg-slate-950/80 border border-slate-800 rounded-xl space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Focus & Integrity Audit</span>
+                  </span>
+                  {totalSwitches === 0 ? (
+                    <span className="text-[11px] text-emerald-400 font-medium flex items-center gap-1 bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                      100% Focused
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1 bg-amber-950/60 border border-amber-800/80 px-2 py-0.5 rounded-full">
+                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                      {totalSwitches} Tab Switch{totalSwitches > 1 ? 'es' : ''}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {totalSwitches === 0
+                    ? 'Candidate maintained active focus in the interview tab across all answer windows.'
+                    : `Candidate left window focus ${totalSwitches} time${totalSwitches > 1 ? 's' : ''} for a cumulative duration of ${totalUnfocusedSeconds}s during answer preparation or recording.`}
+                </p>
+                {deadlineInfo && (
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      <span>Link Expiry:</span>
+                    </span>
+                    <span className="font-mono text-slate-300">
+                      {new Date(deadlineInfo).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
                   </div>
                 )}
               </div>

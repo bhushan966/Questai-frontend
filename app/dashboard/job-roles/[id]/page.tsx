@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/useAuth';
@@ -29,6 +29,8 @@ import {
   User,
   Link2,
   XCircle,
+  Mail,
+  Calendar,
 } from 'lucide-react';
 
 interface JobRole {
@@ -43,6 +45,7 @@ interface SessionSummary {
   id: string;
   candidate_id: string;
   candidate_name?: string;
+  job_role_id?: string;
   status: string;
   mode?: 'recorded' | 'conversational';
   verdict?: string | null;
@@ -55,6 +58,16 @@ interface SessionSummary {
   created_at: string;
 }
 
+function toDateTimeLocalString(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export default function JobRoleSessionsPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -65,7 +78,19 @@ export default function JobRoleSessionsPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [candidateName, setCandidateName] = useState('');
-  const [generatedLink, setGeneratedLink] = useState<{ url: string; modeTitle: string } | null>(null);
+  const [candidateEmail, setCandidateEmail] = useState('');
+  const [customExpiryDateTime, setCustomExpiryDateTime] = useState<string>(() =>
+    toDateTimeLocalString(new Date(Date.now() + 48 * 3600 * 1000))
+  );
+  const datetimeInputRef = useRef<HTMLInputElement>(null);
+  const [expiryPreset, setExpiryPreset] = useState<'48h' | '24h' | '3d' | '7d' | 'custom' | 'none'>('48h');
+  const [generatedLink, setGeneratedLink] = useState<{
+    url: string;
+    modeTitle: string;
+    expiresAt?: string | null;
+    candidateEmail?: string;
+    candidateName?: string;
+  } | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,6 +99,109 @@ export default function JobRoleSessionsPage() {
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [duplicateSuccess, setDuplicateSuccess] = useState<string | null>(null);
+
+  // Unified session fetcher across external API, internal Next.js API, and local storage
+  const fetchRoleSessions = useCallback(async (roleId: string) => {
+    let externalList: SessionSummary[] = [];
+    let internalList: SessionSummary[] = [];
+    let localSavedList: SessionSummary[] = [];
+
+    // 1. External Render API if configured
+    try {
+      const listUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/${roleId}/sessions` : `${API_URL}/job-roles/${roleId}/sessions`;
+      const res = await authedFetch(listUrl);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) externalList = data;
+      }
+    } catch {}
+
+    // 2. Internal /api/sessions (Next.js & Supabase)
+    try {
+      const res = await fetch('/api/sessions');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          internalList = data.filter((s: SessionSummary) => s.job_role_id === roleId);
+        }
+      }
+    } catch {}
+
+    // 3. Client localStorage saved sessions
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('questai_saved_sessions');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            localSavedList = parsed.filter((s: SessionSummary) => s.job_role_id === roleId);
+          }
+        }
+      } catch {}
+    }
+
+    // Merge and deduplicate by session id
+    const sessionsMap = new Map<string, SessionSummary>();
+    [...externalList, ...internalList, ...localSavedList].forEach((s) => {
+      if (s && s.id && !sessionsMap.has(s.id)) {
+        sessionsMap.set(s.id, s);
+      }
+    });
+
+    let candidateNameMap: Record<string, string> = {};
+    let submittedSessionsMap: Record<string, boolean> = {};
+    let evaluationsMap: Record<string, any> = {};
+
+    if (typeof window !== 'undefined') {
+      try {
+        candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+        submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+        evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
+      } catch {}
+    }
+
+    // Ensure locally evaluated sessions for this role are accounted for
+    Object.keys(evaluationsMap).forEach((sessId) => {
+      const ev = evaluationsMap[sessId];
+      if (ev.job_role_id === roleId) {
+        const existing = sessionsMap.get(sessId);
+        if (existing) {
+          existing.rating = existing.rating || { decision: ev.decision };
+          if (ev.decision) existing.status = 'submitted';
+        } else {
+          sessionsMap.set(sessId, {
+            id: sessId,
+            candidate_id: `cand-${sessId.slice(0, 8)}`,
+            candidate_name: candidateNameMap[sessId] || ev.candidate_name,
+            job_role_id: roleId,
+            status: 'submitted',
+            created_at: ev.evaluated_at || new Date().toISOString(),
+            rating: { decision: ev.decision },
+          });
+        }
+      }
+    });
+
+    const enriched = Array.from(sessionsMap.values()).map((s: SessionSummary) => {
+      const localEval = evaluationsMap[s.id];
+      const rating = s.rating || (localEval ? {
+        technical: localEval.technical,
+        communication: localEval.communication,
+        problem_solving: localEval.problem_solving,
+        decision: localEval.decision,
+      } : undefined);
+
+      return {
+        ...s,
+        candidate_name: s.candidate_name || candidateNameMap[s.id],
+        status: submittedSessionsMap[s.id] || localEval ? 'submitted' : s.status,
+        rating,
+      };
+    });
+
+    setSessions(enriched);
+    return enriched;
+  }, []);
 
   useEffect(() => {
     if (!user || !id) return;
@@ -110,11 +238,10 @@ export default function JobRoleSessionsPage() {
       }
     }
 
-    Promise.all([
-      authedFetch(`${API_URL}/job-roles/${id}`).then((res) => (res.ok ? res.json() : null)).catch(() => null),
-      authedFetch(`${API_URL}/job-roles/${id}/sessions`).then((res) => (res.ok ? res.json() : [])).catch(() => []),
-    ])
-      .then(([roleData, sessionsData]) => {
+    authedFetch(`${API_URL}/job-roles/${id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null)
+      .then((roleData) => {
         if (roleData) {
           setRole(roleData);
         } else if (localRole) {
@@ -129,45 +256,29 @@ export default function JobRoleSessionsPage() {
             }
           } catch {}
         }
-
-        // Enrich sessions with saved candidate names, submitted state & evaluations
-        let candidateNameMap: Record<string, string> = {};
-        let submittedSessionsMap: Record<string, boolean> = {};
-        let evaluationsMap: Record<string, any> = {};
-        if (typeof window !== 'undefined') {
-          try {
-            candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
-            submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
-            evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
-          } catch {}
-        }
-
-        const rawList = Array.isArray(sessionsData) ? sessionsData : [];
-        const enriched = rawList.map((s: SessionSummary) => {
-          const localEval = evaluationsMap[s.id];
-          const rating = s.rating || (localEval ? {
-            technical: localEval.technical,
-            communication: localEval.communication,
-            problem_solving: localEval.problem_solving,
-            decision: localEval.decision,
-          } : undefined);
-
-          return {
-            ...s,
-            candidate_name: s.candidate_name || candidateNameMap[s.id],
-            status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
-            rating,
-          };
-        });
-
-        setSessions(enriched);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to load role details:', err);
-        setLoading(false);
       });
-  }, [id, user, router]);
+
+    fetchRoleSessions(id).finally(() => setLoading(false));
+  }, [id, user, router, fetchRoleSessions]);
+
+  const handleSelectPreset = useCallback((preset: '48h' | '24h' | '3d' | '7d' | 'none') => {
+    setExpiryPreset(preset);
+    const now = Date.now();
+    if (preset === '24h') {
+      setCustomExpiryDateTime(toDateTimeLocalString(new Date(now + 24 * 3600 * 1000)));
+    } else if (preset === '48h') {
+      setCustomExpiryDateTime(toDateTimeLocalString(new Date(now + 48 * 3600 * 1000)));
+    } else if (preset === '3d') {
+      setCustomExpiryDateTime(toDateTimeLocalString(new Date(now + 72 * 3600 * 1000)));
+    } else if (preset === '7d') {
+      setCustomExpiryDateTime(toDateTimeLocalString(new Date(now + 168 * 3600 * 1000)));
+    }
+  }, []);
+
+  const handleCustomDateTimeChange = useCallback((val: string) => {
+    setCustomExpiryDateTime(val);
+    setExpiryPreset('custom');
+  }, []);
 
   const handleGenerateLink = async (source: 'ai' | 'manual' | 'conversational') => {
     setGenerating(true);
@@ -282,6 +393,35 @@ export default function JobRoleSessionsPage() {
         } catch {}
       }
 
+      // Persist candidate email if provided
+      const candidateEmailVal = candidateEmail.trim();
+      if (typeof window !== 'undefined' && candidateEmailVal && session?.id) {
+        try {
+          const emailMap = JSON.parse(localStorage.getItem('questai_candidate_emails') || '{}');
+          emailMap[session.id] = candidateEmailVal;
+          localStorage.setItem('questai_candidate_emails', JSON.stringify(emailMap));
+        } catch {}
+      }
+
+      // Compute expiration deadline timestamp from the date & time selector
+      let expiresAt: string | null = null;
+      if (expiryPreset !== 'none' && customExpiryDateTime) {
+        try {
+          const parsed = new Date(customExpiryDateTime);
+          if (!isNaN(parsed.getTime())) {
+            expiresAt = parsed.toISOString();
+          }
+        } catch {}
+      }
+
+      if (typeof window !== 'undefined' && expiresAt && session?.id) {
+        try {
+          const deadMap = JSON.parse(localStorage.getItem('questai_session_deadlines') || '{}');
+          deadMap[session.id] = expiresAt;
+          localStorage.setItem('questai_session_deadlines', JSON.stringify(deadMap));
+        } catch {}
+      }
+
       const modeTitle =
         source === 'conversational'
           ? 'Live Conversational AI'
@@ -289,47 +429,42 @@ export default function JobRoleSessionsPage() {
           ? 'Custom Questions'
           : 'AI-Curated Questions';
 
-      const nameQuery = candidateNameVal ? `?name=${encodeURIComponent(candidateNameVal)}` : '';
+      const queryParams = new URLSearchParams();
+      if (candidateNameVal) queryParams.set('name', candidateNameVal);
+      if (expiresAt) queryParams.set('expires', expiresAt);
+      if (candidateEmailVal) queryParams.set('email', candidateEmailVal);
+      const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
       setGeneratedLink({
-        url: `${window.location.origin}/interview/${session.id}${nameQuery}`,
+        url: `${window.location.origin}/interview/${session.id}${queryStr}`,
         modeTitle,
+        expiresAt,
+        candidateEmail: candidateEmailVal || undefined,
+        candidateName: candidateNameVal,
       });
 
-      // Refresh candidate list and enrich with candidate name, submission status & evaluations
-      const listUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/${id}/sessions` : `${API_URL}/job-roles/${id}/sessions`;
-      authedFetch(listUrl)
-        .then((r) => (r.ok ? r.json() : []))
-        .then((data) => {
-          const raw = Array.isArray(data) ? data : [];
-          let candidateNameMap: Record<string, string> = {};
-          let submittedSessionsMap: Record<string, boolean> = {};
-          let evaluationsMap: Record<string, any> = {};
-          if (typeof window !== 'undefined') {
-            try {
-              candidateNameMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
-              submittedSessionsMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
-              evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
-            } catch {}
+      // Persist to local storage saved sessions so it appears everywhere immediately
+      if (typeof window !== 'undefined' && session?.id) {
+        try {
+          const stored = localStorage.getItem('questai_saved_sessions');
+          const list = stored ? JSON.parse(stored) : [];
+          const exists = list.some((s: any) => s.id === session.id);
+          if (!exists) {
+            list.unshift({
+              id: session.id,
+              job_role_id: id,
+              candidate_id: session.candidate_id || candidateId,
+              candidate_name: candidateNameVal,
+              mode: interviewMode,
+              status: 'not_started',
+              created_at: new Date().toISOString(),
+            });
+            localStorage.setItem('questai_saved_sessions', JSON.stringify(list));
           }
-          const enriched = raw.map((s: SessionSummary) => {
-            const localEval = evaluationsMap[s.id];
-            const rating = s.rating || (localEval ? {
-              technical: localEval.technical,
-              communication: localEval.communication,
-              problem_solving: localEval.problem_solving,
-              decision: localEval.decision,
-            } : undefined);
+        } catch {}
+      }
 
-            return {
-              ...s,
-              candidate_name: s.candidate_name || candidateNameMap[s.id],
-              status: submittedSessionsMap[s.id] ? 'submitted' : s.status,
-              rating,
-            };
-          });
-          setSessions(enriched);
-        })
-        .catch(() => null);
+      await fetchRoleSessions(id);
     } catch (err: any) {
       console.warn('Generate link error:', err);
       setLinkError(err.message || 'Failed to generate link. Please try again.');
@@ -343,6 +478,49 @@ export default function JobRoleSessionsPage() {
     navigator.clipboard.writeText(generatedLink.url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const getGmailComposeUrl = () => {
+    if (!generatedLink || !role) return '#';
+    const candidateDisp = generatedLink.candidateName || 'Candidate';
+    const subject = `Invitation: Video Interview for ${role.title}`;
+
+    let deadlineLine = 'No expiration deadline.';
+    if (generatedLink.expiresAt) {
+      const expDate = new Date(generatedLink.expiresAt);
+      deadlineLine = `Please complete your interview by: ${expDate.toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}.`;
+    }
+
+    const body = `Hi ${candidateDisp},
+
+Thank you for your interest in the ${role.title} position!
+
+We would like to invite you to complete a brief video assessment. This interactive session gives you the opportunity to share your experience and thought process with our hiring team.
+
+👉 Access Your Interview Session Here:
+${generatedLink.url}
+
+⏰ Assessment Deadline:
+${deadlineLine}
+
+Instructions:
+• Please ensure you are in a quiet environment with a working camera and microphone.
+• Keep your browser tab in focus during your responses.
+• You will be given prep time for each question before your video answer is recorded.
+
+Best regards,
+Hiring Team`;
+
+    return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
+      generatedLink.candidateEmail || ''
+    )}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   const handleDuplicateRole = async () => {
@@ -516,19 +694,118 @@ export default function JobRoleSessionsPage() {
                 </span>
               </div>
 
-              {/* Optional candidate name */}
-              <div className="max-w-md relative">
-                <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={candidateName}
-                  onChange={(e) => setCandidateName(e.target.value)}
-                  placeholder="Candidate name or referral tag (optional)..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-                />
+              {/* Optional candidate name & email */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="relative">
+                  <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={candidateName}
+                    onChange={(e) => setCandidateName(e.target.value)}
+                    placeholder="Candidate name or referral tag (optional)..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+                <div className="relative">
+                  <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="email"
+                    value={candidateEmail}
+                    onChange={(e) => setCandidateEmail(e.target.value)}
+                    placeholder="Candidate email for Gmail dispatch (optional)..."
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2.5">
+              {/* Expiry Deadline & Custom Date-Time Selector */}
+              <div className="space-y-2 pt-1 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Interview Expiry Date & Time:</span>
+                  </span>
+
+                  {expiryPreset !== 'none' && customExpiryDateTime ? (
+                    <span className="text-slate-400 text-[11px]">
+                      Expires:{' '}
+                      <strong className="text-amber-300 font-medium">
+                        {new Date(customExpiryDateTime).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </strong>
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-[11px]">No expiration deadline</span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Interactive Date & Time Picker */}
+                  <div className="relative inline-flex items-center">
+                    <button
+                      type="button"
+                      disabled={expiryPreset === 'none'}
+                      onClick={() => {
+                        try {
+                          datetimeInputRef.current?.showPicker();
+                        } catch {
+                          datetimeInputRef.current?.focus();
+                        }
+                      }}
+                      className="absolute left-2.5 z-10 text-blue-400 hover:text-blue-300 disabled:text-slate-600 disabled:opacity-40 transition-colors pointer-events-auto"
+                      title="Click to open calendar"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                    </button>
+                    <input
+                      ref={datetimeInputRef}
+                      type="datetime-local"
+                      style={{ colorScheme: 'dark' }}
+                      value={expiryPreset === 'none' ? '' : customExpiryDateTime}
+                      disabled={expiryPreset === 'none'}
+                      onChange={(e) => handleCustomDateTimeChange(e.target.value)}
+                      min={toDateTimeLocalString(new Date())}
+                      className={`bg-slate-950 border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none transition-colors [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-90 hover:[&::-webkit-calendar-picker-indicator]:opacity-100 ${
+                        expiryPreset === 'none'
+                          ? 'border-slate-800 text-slate-600 opacity-40 cursor-not-allowed'
+                          : 'border-slate-700 text-slate-100 hover:border-slate-600 focus:border-blue-500'
+                      }`}
+                      title="Select exact deadline date and time"
+                    />
+                  </div>
+
+                  {/* Quick Duration Presets */}
+                  {(
+                    [
+                      { id: '48h', label: '48h (Default)' },
+                      { id: '24h', label: '24h' },
+                      { id: '3d', label: '3 Days' },
+                      { id: '7d', label: '7 Days' },
+                      { id: 'none', label: 'No Expiry' },
+                    ] as const
+                  ).map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleSelectPreset(preset.id)}
+                      className={`px-2.5 py-1.5 rounded-lg font-medium text-xs transition-colors border ${
+                        expiryPreset === preset.id
+                          ? 'bg-blue-600/20 border-blue-500 text-blue-300'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
                 <button
                   onClick={() => handleGenerateLink('ai')}
                   disabled={generating}
@@ -562,39 +839,82 @@ export default function JobRoleSessionsPage() {
 
         {/* Link Generated Banner */}
         {generatedLink && (
-          <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 to-slate-950 border border-emerald-800/80 rounded-2xl space-y-3 animate-in fade-in">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-emerald-400 flex items-center gap-2">
-                <Check className="w-4 h-4" />
-                Candidate Link Generated ({generatedLink.modeTitle})
-              </span>
+          <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-900 to-slate-950 border border-emerald-800/80 rounded-2xl space-y-3.5 animate-in fade-in shadow-lg">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                  <Check className="w-4 h-4" />
+                  Candidate Link Generated ({generatedLink.modeTitle})
+                </span>
+
+                {generatedLink.expiresAt ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-950/70 border border-amber-800/80 text-[11px] font-semibold text-amber-300">
+                    <Clock className="w-3 h-3 text-amber-400" />
+                    Valid until {new Date(generatedLink.expiresAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[11px] font-medium text-slate-300">
+                    No expiration deadline
+                  </span>
+                )}
+
+                {generatedLink.candidateEmail && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-950/70 border border-blue-800/80 text-[11px] font-semibold text-blue-300">
+                    <Mail className="w-3 h-3 text-blue-400" />
+                    {generatedLink.candidateEmail}
+                  </span>
+                )}
+              </div>
+
               <a
                 href={generatedLink.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1 font-medium"
+                className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1 font-medium ml-auto"
               >
-                <span>Open in New Tab</span>
+                <span>Test Link in New Tab</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>
-            <div className="flex items-center gap-2">
+
+            {/* Link URL, Copy Link, and Send via Gmail */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
               <input
                 readOnly
                 value={generatedLink.url}
-                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-mono text-slate-200 select-all"
+                className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-mono text-slate-200 select-all"
               />
-              <button
-                onClick={handleCopy}
-                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-medium shrink-0 transition-colors flex items-center gap-1.5 ${
-                  copied
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white'
-                }`}
-              >
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>{copied ? 'Copied' : 'Copy'}</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={handleCopy}
+                  className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                    copied
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-blue-600 hover:bg-blue-500 text-white'
+                  }`}
+                  title="Copy interview link"
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  <span>{copied ? 'Copied Link' : 'Copy Link'}</span>
+                </button>
+
+                <a
+                  href={getGmailComposeUrl()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs sm:text-sm font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
+                  title="Open a pre-filled invitation draft in Gmail"
+                >
+                  <Mail className="w-4 h-4" />
+                  <span>Send via Gmail</span>
+                  <ExternalLink className="w-3 h-3 opacity-80" />
+                </a>
+              </div>
             </div>
           </div>
         )}
