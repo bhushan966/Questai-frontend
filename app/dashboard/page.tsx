@@ -61,9 +61,12 @@ export default function DashboardPage() {
     let isMounted = true;
 
     async function loadDashboard() {
-      // 1. Instantly read locally saved roles and deleted tombstones
+      // 1. Instantly read locally saved roles, sessions, and deleted tombstones
       let localRoles: JobRole[] = [];
       let deletedRoleIds: string[] = [];
+      let localSavedSessions: SessionSummary[] = [];
+      let submittedMap: Record<string, boolean> = {};
+      let evaluationsMap: Record<string, any> = {};
 
       if (typeof window !== 'undefined') {
         try {
@@ -76,6 +79,47 @@ export default function DashboardPage() {
             localRoles = parsed.filter((r: JobRole) => !deletedRoleIds.includes(r.id));
             if (isMounted && localRoles.length > 0) {
               setJobRoles(localRoles);
+            }
+          }
+
+          const savedSessionsStored = localStorage.getItem('questai_saved_sessions');
+          if (savedSessionsStored) {
+            const parsedSessions = JSON.parse(savedSessionsStored);
+            if (Array.isArray(parsedSessions)) localSavedSessions = parsedSessions;
+          }
+
+          submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
+
+          // Immediately compute instant preview sessions for zero-latency display
+          if (localSavedSessions.length > 0 || Object.keys(evaluationsMap).length > 0) {
+            const instantSessionsMap = new Map<string, SessionSummary>();
+            localSavedSessions.forEach((s) => {
+              if (s && s.id) instantSessionsMap.set(s.id, { ...s });
+            });
+            Object.keys(evaluationsMap).forEach((sessId) => {
+              const ev = evaluationsMap[sessId];
+              const existing = instantSessionsMap.get(sessId);
+              if (existing) {
+                existing.rating = existing.rating || { decision: ev.decision };
+                if (ev.decision) existing.status = 'submitted';
+                if (!existing.job_role_id && ev.job_role_id) existing.job_role_id = ev.job_role_id;
+              } else if (ev.job_role_id) {
+                instantSessionsMap.set(sessId, {
+                  id: sessId,
+                  job_role_id: ev.job_role_id,
+                  status: 'submitted',
+                  rating: { decision: ev.decision },
+                });
+              }
+            });
+            const instantEnriched = Array.from(instantSessionsMap.values()).map((s) => ({
+              ...s,
+              status: submittedMap[s.id] || evaluationsMap[s.id]?.decision ? 'submitted' : s.status,
+              rating: s.rating || (evaluationsMap[s.id] ? { decision: evaluationsMap[s.id].decision } : undefined),
+            }));
+            if (isMounted) {
+              setSessions(instantEnriched);
             }
           }
         } catch {
@@ -134,24 +178,16 @@ export default function DashboardPage() {
         const allRawSessions: SessionSummary[] = [
           ...roleSessionsArrays.flat(),
           ...(Array.isArray(internalSessions) ? internalSessions : []),
+          ...localSavedSessions,
         ];
 
         // Deduplicate sessions by session ID
         const sessionsMap = new Map<string, SessionSummary>();
         allRawSessions.forEach((s) => {
           if (s && s.id && !sessionsMap.has(s.id)) {
-            sessionsMap.set(s.id, s);
+            sessionsMap.set(s.id, { ...s });
           }
         });
-
-        let submittedMap: Record<string, boolean> = {};
-        let evaluationsMap: Record<string, any> = {};
-        if (typeof window !== 'undefined') {
-          try {
-            submittedMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
-            evaluationsMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
-          } catch {}
-        }
 
         // Ensure any locally evaluated sessions are accounted for
         Object.keys(evaluationsMap).forEach((sessId) => {
@@ -535,7 +571,7 @@ export default function DashboardPage() {
                                 <span>{onHold} On Hold</span>
                               </span>
                             )}
-                            {inProgress > 0 && readyForReview === 0 && shortlisted === 0 && onHold === 0 && (
+                            {inProgress > 0 && (
                               <span className="text-[11px] px-2.5 py-0.5 rounded-full border bg-slate-800 text-slate-400 border-slate-700 font-medium flex items-center gap-1">
                                 <Clock className="w-3 h-3 text-slate-400" />
                                 <span>{inProgress} In Progress</span>
