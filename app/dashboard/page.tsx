@@ -158,7 +158,13 @@ export default function DashboardPage() {
             const res = await authedFetch(`${API_URL}/job-roles/${role.id}/sessions`);
             if (res.ok) {
               const data = await res.json();
-              return Array.isArray(data) ? data : [];
+              if (Array.isArray(data)) {
+                return data.map((item: any) => ({
+                  ...item,
+                  job_role_id: item.job_role_id || role.id,
+                }));
+              }
+              return [];
             }
           } catch {
             // ignore
@@ -543,7 +549,14 @@ export default function DashboardPage() {
 
                       {/* Live Interview Status Badge */}
                       {(() => {
-                        const roleSessions = sessions.filter((s) => s.job_role_id === role.id);
+                        const roleIdStr = String(role.id).toLowerCase().trim();
+                        const roleIdClean = roleIdStr.replace(/^role-/, '');
+                        const roleSessions = sessions.filter((s) => {
+                          if (!s) return false;
+                          const sessRoleId = s.job_role_id ? String(s.job_role_id).toLowerCase().trim() : '';
+                          const sessRoleClean = sessRoleId.replace(/^role-/, '');
+                          return sessRoleId === roleIdStr || (sessRoleClean.length > 0 && sessRoleClean === roleIdClean);
+                        });
                         const shortlisted = roleSessions.filter((s) => s.rating?.decision === 'shortlisted').length;
                         const onHold = roleSessions.filter((s) => s.rating?.decision === 'hold').length;
                         const readyForReview = roleSessions.filter(

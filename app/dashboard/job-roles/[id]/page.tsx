@@ -112,7 +112,12 @@ export default function JobRoleSessionsPage() {
       const res = await authedFetch(listUrl);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) externalList = data;
+        if (Array.isArray(data)) {
+          externalList = data.map((item: any) => ({
+            ...item,
+            job_role_id: item.job_role_id || roleId,
+          }));
+        }
       }
     } catch {}
 
