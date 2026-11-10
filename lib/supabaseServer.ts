@@ -25,3 +25,9 @@ export function getSupabaseServerClient(): SupabaseClient | null {
     return null;
   }
 }
+
+export function isUUID(str: string | null | undefined): boolean {
+  if (!str || typeof str !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+

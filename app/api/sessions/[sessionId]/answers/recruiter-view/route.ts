@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET(
   _request: Request,
@@ -8,9 +8,9 @@ export async function GET(
 ) {
   const { sessionId } = await props.params;
 
-  // 1. Try fetching from Supabase DB
+  // 1. Try fetching from Supabase DB if valid UUID
   const supabase = getSupabaseServerClient();
-  if (supabase) {
+  if (supabase && isUUID(sessionId)) {
     try {
       const { data: dbAnswers, error } = await supabase
         .from('answers')

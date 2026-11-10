@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Question, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET(
   _request: Request,
@@ -9,7 +9,7 @@ export async function GET(
   const { id } = await props.params;
 
   const supabase = getSupabaseServerClient();
-  if (supabase) {
+  if (supabase && isUUID(id)) {
     try {
       const { data, error } = await supabase
         .from('questions')
@@ -50,9 +50,14 @@ export async function POST(
     };
 
     const supabase = getSupabaseServerClient();
-    if (supabase) {
+    if (supabase && isUUID(id)) {
       try {
-        await supabase.from('questions').upsert([newQuestion]);
+        await supabase.from('questions').upsert([
+          {
+            ...newQuestion,
+            id: isUUID(newQuestion.id) ? newQuestion.id : crypto.randomUUID(),
+          },
+        ]);
       } catch (err) {
         console.warn('[Supabase DB] Error inserting question:', err);
       }

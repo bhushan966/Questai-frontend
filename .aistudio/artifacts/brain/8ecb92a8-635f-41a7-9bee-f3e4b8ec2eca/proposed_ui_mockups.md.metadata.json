@@ -1,0 +1,5 @@
+{
+  "summary":  "Visual design mockups and layout blueprint for the candidate interview interface:\n1. Screen 1: Welcome & Job Overview Page (shows job title, job description, required skills, and interview guidelines).\n2. Screen 2: Zero-Scroll Split Viewport Layout (fits 100% in viewport without scrolling, showing question and audio checks on the left, webcam feed on the right, and action buttons in full view).",
+  "updatedAt":  "2026-11-10T07:04:10.774816545Z",
+  "userFacing":  true
+}

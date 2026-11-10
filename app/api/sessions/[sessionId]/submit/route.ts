@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function POST(
   _request: Request,
@@ -33,9 +33,9 @@ export async function POST(
     }
   }
 
-  // Sync to Supabase
+  // Sync to Supabase if valid UUID
   const supabase = getSupabaseServerClient();
-  if (supabase) {
+  if (supabase && isUUID(sessionId)) {
     try {
       await supabase
         .from('sessions')

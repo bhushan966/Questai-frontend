@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, markRoleDeleted, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET(
   _request: Request,
@@ -9,7 +9,7 @@ export async function GET(
   const { id } = await props.params;
 
   const supabase = getSupabaseServerClient();
-  if (supabase) {
+  if (supabase && isUUID(id)) {
     try {
       const { data, error } = await supabase
         .from('job_roles')
@@ -29,10 +29,27 @@ export async function GET(
     return NextResponse.json({ detail: 'Job role not found' }, { status: 404 });
   }
   const role = mockStore.jobRoles.find((r) => r.id === id);
-  if (!role) {
-    return NextResponse.json({ detail: 'Job role not found' }, { status: 404 });
+  if (role) {
+    return NextResponse.json(role);
   }
-  return NextResponse.json(role);
+
+  const sessionWithRole = mockStore.sessions.find((s) => s.job_role_id === id);
+  if (sessionWithRole) {
+    const fallbackTitle = (sessionWithRole as any).job_role_title || 'Interview Assessment';
+    const fallbackDesc =
+      (sessionWithRole as any).job_role_description ||
+      'Complete the video interview assessment to showcase your skills, problem-solving ability, and background to our hiring team.';
+    const synthesizedRole = {
+      id,
+      title: fallbackTitle,
+      description: fallbackDesc,
+      skills_required: (sessionWithRole as any).skills_required || null,
+      created_at: sessionWithRole.created_at,
+    };
+    return NextResponse.json(synthesizedRole);
+  }
+
+  return NextResponse.json({ detail: 'Job role not found' }, { status: 404 });
 }
 
 export async function PATCH(
@@ -60,7 +77,7 @@ export async function PATCH(
     }
 
     const supabase = getSupabaseServerClient();
-    if (supabase && Object.keys(updates).length > 0) {
+    if (supabase && isUUID(id) && Object.keys(updates).length > 0) {
       try {
         await supabase.from('job_roles').update(updates).eq('id', id);
       } catch (err) {
@@ -92,9 +109,9 @@ export async function DELETE(
 ) {
   const { id } = await props.params;
 
-  // 1. Delete from Supabase Database
+  // 1. Delete from Supabase Database if valid UUID
   const supabase = getSupabaseServerClient();
-  if (supabase) {
+  if (supabase && isUUID(id)) {
     try {
       try {
         await supabase.from('answers').delete().eq('session_id', id);

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Session, Answer, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 // Helper to clean up any duplicate ghost sessions
 function cleanDuplicateSessions(sessions: Session[]): Session[] {
@@ -59,13 +59,25 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { id: requestedId, job_role_id, candidate_id, candidate_name, question_source, mode } = body;
+    const {
+      id: requestedId,
+      job_role_id,
+      candidate_id,
+      candidate_name,
+      question_source,
+      mode,
+      job_role_title,
+      job_role_description,
+      skills_required,
+    } = body;
 
     // 1. If an existing session ID was requested, return it (prevents duplicate link generation)
     if (requestedId) {
       const existing = mockStore.sessions.find((s) => s.id === requestedId);
       if (existing) {
         if (candidate_name && !existing.candidate_name) existing.candidate_name = candidate_name;
+        if (job_role_title && !(existing as any).job_role_title) (existing as any).job_role_title = job_role_title;
+        if (job_role_description && !(existing as any).job_role_description) (existing as any).job_role_description = job_role_description;
         persistMockStore();
         return NextResponse.json(existing);
       }
@@ -84,21 +96,24 @@ export async function POST(request: Request) {
       }
     }
 
-    const sessionId = requestedId || `sess-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const sessionId = requestedId || crypto.randomUUID();
     const newSession: Session = {
       id: sessionId,
       job_role_id,
       candidate_id: candidate_id || `cand-${Date.now().toString(36)}`,
-      candidate_name: candidate_name || (candidate_id ? `Candidate ${candidate_id.slice(0, 8)}` : `Candidate ${sessionId.slice(5, 11)}`),
+      candidate_name: candidate_name || (candidate_id ? `Candidate ${candidate_id.slice(0, 8)}` : `Candidate ${sessionId.slice(0, 8)}`),
       question_source: question_source || 'ai',
       mode: mode === 'conversational' ? 'conversational' : 'recorded',
       status: 'not_started',
       created_at: new Date().toISOString(),
     };
+    (newSession as any).job_role_title = job_role_title;
+    (newSession as any).job_role_description = job_role_description;
+    (newSession as any).skills_required = skills_required;
 
-    // Persist session to Supabase
+    // Persist session to Supabase if valid UUID
     const supabase = getSupabaseServerClient();
-    if (supabase) {
+    if (supabase && isUUID(newSession.id) && isUUID(newSession.job_role_id)) {
       try {
         await supabase.from('sessions').upsert([
           {
@@ -161,11 +176,11 @@ export async function POST(request: Request) {
         answersToInsert.push(answer);
       });
 
-      if (supabase && answersToInsert.length > 0) {
+      if (supabase && isUUID(sessionId) && answersToInsert.length > 0) {
         try {
           await supabase.from('answers').upsert(
             answersToInsert.map((a) => ({
-              id: a.id,
+              id: isUUID(a.id) ? a.id : crypto.randomUUID(),
               session_id: a.session_id,
               question_id: a.question_id,
               question_text: a.question_text,

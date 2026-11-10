@@ -17,6 +17,9 @@ import {
   Sparkles,
   Square,
   ArrowRight,
+  ArrowLeft,
+  Briefcase,
+  FileText,
   AlertCircle,
   CheckCheck,
   Loader2,
@@ -26,10 +29,13 @@ import {
   Lock,
   Clock,
   ShieldAlert,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 type RealPhase =
   | 'loading'
+  | 'welcome'
   | 'intro'
   | 'speaking'
   | 'thinking'
@@ -81,6 +87,35 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ViewportStudioShell({
+  children,
+  headerLeft,
+  headerRight,
+}: {
+  children: React.ReactNode;
+  headerLeft?: React.ReactNode;
+  headerRight?: React.ReactNode;
+}) {
+  return (
+    <div className="min-h-screen lg:h-screen lg:max-h-screen bg-slate-950 text-slate-100 flex flex-col p-3 sm:p-4 lg:p-5 lg:overflow-hidden">
+      {/* Studio Top Navigation Bar */}
+      <header className="shrink-0 flex items-center justify-between pb-2.5 sm:pb-3 border-b border-slate-800/80 mb-2 sm:mb-3 gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {headerLeft}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {headerRight}
+        </div>
+      </header>
+
+      {/* Main Studio Viewport Area */}
+      <main className="flex-1 min-h-0 flex flex-col justify-center">
+        {children}
+      </main>
+    </div>
+  );
+}
+
 /**
  * CameraFrame ensures video feed is always rendered and never blank.
  */
@@ -94,6 +129,7 @@ function CameraFrame({
   onToggleCamera,
   onToggleMic,
   label,
+  children,
 }: {
   stream: MediaStream | null;
   ring?: 'idle' | 'recording' | 'speaking' | 'thinking';
@@ -104,6 +140,7 @@ function CameraFrame({
   onToggleCamera?: () => void;
   onToggleMic?: () => void;
   label?: string;
+  children?: React.ReactNode;
 }) {
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
 
@@ -161,14 +198,14 @@ function CameraFrame({
   }
 
   const ringStyles = {
-    recording: 'border-red-500 shadow-lg shadow-red-500/20 ring-4 ring-red-500/10',
-    speaking: 'border-blue-500 shadow-lg shadow-blue-500/20 ring-4 ring-blue-500/10',
-    thinking: 'border-amber-500 shadow-lg shadow-amber-500/20 ring-4 ring-amber-500/10',
+    recording: 'border-red-500 shadow-xl shadow-red-500/25 ring-4 ring-red-500/20',
+    speaking: 'border-blue-500 shadow-xl shadow-blue-500/25 ring-4 ring-blue-500/20',
+    thinking: 'border-amber-500 shadow-xl shadow-amber-500/25 ring-4 ring-amber-500/20',
     idle: 'border-slate-800',
   }[ring || 'idle'];
 
   return (
-    <div className={`relative rounded-2xl overflow-hidden bg-slate-950 aspect-video border-2 transition-all ${ringStyles}`}>
+    <div className={`relative rounded-3xl overflow-hidden bg-slate-950 aspect-video border-2 transition-all ${ringStyles}`}>
       <video
         ref={attachStream}
         autoPlay
@@ -181,57 +218,62 @@ function CameraFrame({
       />
 
       {/* Top Status Badges */}
-      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
+      <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none z-10">
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-slate-800 text-[11px] font-medium text-slate-300">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span>{label || 'LIVE VIDEO FEED'}</span>
         </div>
         {ring === 'recording' && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/90 text-white text-[11px] font-bold tracking-wide animate-pulse">
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-600/90 text-white text-[11px] font-bold tracking-wide animate-pulse shadow-lg shadow-red-600/30">
             <span className="w-2 h-2 rounded-full bg-white" />
             <span>REC</span>
           </div>
         )}
         {ring === 'speaking' && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-600/90 text-white text-[11px] font-bold tracking-wide animate-pulse">
-            <Volume2 className="w-3 h-3 text-white" />
+          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-600/90 text-white text-[11px] font-bold tracking-wide animate-pulse shadow-lg shadow-blue-600/30">
+            <Volume2 className="w-3.5 h-3.5 text-white" />
             <span>AI ASKING</span>
           </div>
         )}
       </div>
 
       {cameraOn === false && (
-        <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center gap-2">
+        <div className="absolute inset-0 bg-slate-900/95 flex flex-col items-center justify-center gap-2 z-10">
           <VideoOff className="w-8 h-8 text-slate-500" />
           <span className="text-xs text-slate-400 font-medium">Camera is disabled</span>
         </div>
       )}
 
-      {/* Floating Control Badges */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800">
-        {onToggleCamera && (
-          <button
-            onClick={onToggleCamera}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-              cameraOn ? 'text-slate-300 hover:text-white hover:bg-slate-800' : 'bg-red-600 text-white'
-            }`}
-            title={cameraOn ? 'Turn camera off' : 'Turn camera on'}
-          >
-            {cameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-          </button>
-        )}
-        {onToggleMic && (
-          <button
-            onClick={onToggleMic}
-            className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-              micOn ? 'text-slate-300 hover:text-white hover:bg-slate-800' : 'bg-red-600 text-white'
-            }`}
-            title={micOn ? 'Turn mic off' : 'Turn mic on'}
-          >
-            {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-          </button>
-        )}
-      </div>
+      {/* Embedded Children Overlays (e.g., Question at Bottom + Controls Dock) */}
+      {children}
+
+      {/* Default Floating Control Badges (when no custom children overlay is provided) */}
+      {!children && (onToggleCamera || onToggleMic) && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-full border border-slate-800 z-10">
+          {onToggleCamera && (
+            <button
+              onClick={onToggleCamera}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                cameraOn ? 'text-slate-300 hover:text-white hover:bg-slate-800' : 'bg-red-600 text-white'
+              }`}
+              title={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+            >
+              {cameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+            </button>
+          )}
+          {onToggleMic && (
+            <button
+              onClick={onToggleMic}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                micOn ? 'text-slate-300 hover:text-white hover:bg-slate-800' : 'bg-red-600 text-white'
+              }`}
+              title={micOn ? 'Turn mic off' : 'Turn mic on'}
+            >
+              {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -278,6 +320,31 @@ export default function InterviewPage() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Fullscreen state
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch (err) {
+      console.warn('Fullscreen toggle failed:', err);
+    }
+  };
 
   // Expiry & Deadline state
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
@@ -570,26 +637,124 @@ export default function InterviewPage() {
         }
         setSession(sess);
 
-        fetch(`${API_URL}/job-roles/${sess.job_role_id}`)
-          .then((res) => (res.ok ? res.json() : null))
-          .then((role) => {
-            setJobRole(
-              role || {
-                id: sess.job_role_id,
-                title: 'Interview Candidate',
-                description: 'Complete the interview assessment below.',
-                skills_required: null,
-              }
+        // Helper to format/generate fallback description if empty
+        const getDefaultDescription = (titleStr?: string) => {
+          const lower = (titleStr || '').toLowerCase();
+          if (lower.includes('python')) {
+            return 'Develop and maintain robust Python backend services, APIs, and data processing workflows. Collaborate with cross-functional teams to design scalable features, optimize database performance, and ensure clean, maintainable architecture.';
+          }
+          if (lower.includes('ai') || lower.includes('ml') || lower.includes('machine learning')) {
+            return 'Build, evaluate, and deploy intelligent AI applications, prompt workflows, and retrieval-augmented generation (RAG) pipelines. Integrate modern LLMs, monitor performance, and ensure safe, reliable model responses.';
+          }
+          if (lower.includes('frontend') || lower.includes('react') || lower.includes('ui')) {
+            return 'Lead the development of intuitive, accessible, and responsive user interfaces. Work with modern component architecture, optimize client-side rendering and media streaming, and build delightful candidate and recruiter experiences.';
+          }
+          if (lower.includes('full stack') || lower.includes('fullstack')) {
+            return 'Build end-to-end features spanning responsive web applications, secure backend APIs, and reliable database architectures. Take ownership from feature conception to deployment in production.';
+          }
+          return 'Complete this video interview assessment to showcase your skills, problem-solving ability, and background to our hiring team.';
+        };
+
+        // 1. Check if job_role is already attached to session response
+        let initialRole: JobRole | null = (sess as any).job_role || null;
+
+        // 2. Check URL query parameters (?roleTitle=...&roleDesc=...&roleSkills=...)
+        let paramTitle: string | null = null;
+        let paramDesc: string | null = null;
+        let paramSkills: string | null = null;
+        if (typeof window !== 'undefined') {
+          try {
+            const urlParams = new URLSearchParams(window.location.search);
+            paramTitle = urlParams.get('roleTitle');
+            paramDesc = urlParams.get('roleDesc');
+            paramSkills = urlParams.get('roleSkills');
+          } catch {}
+        }
+
+        // 3. Check browser localStorage saved roles if candidate is testing in same environment
+        if (!initialRole && typeof window !== 'undefined') {
+          try {
+            const storedRoles = JSON.parse(localStorage.getItem('questai_saved_roles') || '[]');
+            const matched = storedRoles.find(
+              (r: any) =>
+                r.id === sess.job_role_id ||
+                (paramTitle && r.title?.toLowerCase() === paramTitle.toLowerCase())
             );
-          })
-          .catch(() => {
+            if (matched) {
+              initialRole = matched;
+            }
+          } catch {}
+        }
+
+        // 4. Construct best available role immediately
+        const resolvedTitle =
+          initialRole?.title ||
+          paramTitle ||
+          (sess as any).job_role_title ||
+          'Interview Candidate';
+        const rawDesc =
+          initialRole?.description ||
+          paramDesc ||
+          (sess as any).job_role_description;
+        const resolvedDesc =
+          rawDesc && rawDesc.trim() ? rawDesc.trim() : getDefaultDescription(resolvedTitle);
+        const resolvedSkills =
+          initialRole?.skills_required ||
+          paramSkills ||
+          (sess as any).skills_required ||
+          null;
+
+        setJobRole({
+          id: sess.job_role_id || initialRole?.id || 'role-default',
+          title: resolvedTitle,
+          description: resolvedDesc,
+          skills_required: resolvedSkills,
+        });
+
+        // 5. Also async-fetch from backend endpoints to enrich/sync with latest server state
+        const fetchRoleAsync = async () => {
+          let roleRes: Response | null = null;
+          if (sess.job_role_id) {
+            roleRes = await fetch(`${API_URL}/job-roles/${sess.job_role_id}`).catch(() => null);
+            if ((!roleRes || !roleRes.ok) && API_URL !== '/api') {
+              roleRes = await fetch(`/api/job-roles/${sess.job_role_id}`).catch(() => null);
+            }
+          }
+          if (!roleRes || !roleRes.ok) {
+            // Try fetching all job roles to match by id or title
+            roleRes = await fetch(`/api/job-roles`).catch(() => null);
+            if (roleRes && roleRes.ok) {
+              const allRoles = await roleRes.json().catch(() => null);
+              if (Array.isArray(allRoles)) {
+                const found = allRoles.find(
+                  (r: any) =>
+                    r.id === sess.job_role_id ||
+                    (paramTitle && r.title?.toLowerCase() === paramTitle.toLowerCase())
+                );
+                if (found) {
+                  return found;
+                }
+              }
+            }
+            return null;
+          }
+          return roleRes.json().catch(() => null);
+        };
+
+        fetchRoleAsync().then((fetchedRole) => {
+          if (fetchedRole) {
+            const fTitle = fetchedRole.title || resolvedTitle;
+            const fRawDesc = fetchedRole.description || rawDesc;
+            const fDesc =
+              fRawDesc && fRawDesc.trim() ? fRawDesc.trim() : getDefaultDescription(fTitle);
             setJobRole({
-              id: sess.job_role_id,
-              title: 'Interview Assessment',
-              description: 'Standard video interview session.',
-              skills_required: null,
+              id: fetchedRole.id || sess.job_role_id,
+              title: fTitle,
+              description: fDesc,
+              skills_required: fetchedRole.skills_required || resolvedSkills,
             });
-          });
+          }
+        });
 
         // 1. Guard against retaking completed interviews
         let isAlreadySubmitted = false;
@@ -661,7 +826,7 @@ export default function InterviewPage() {
 
           startConversational().then((msg) => {
             setCurrentAiPrompt(msg);
-            setPhase('intro');
+            setPhase('welcome');
           });
         } else {
           const fetchInterviewAnswers = async () => {
@@ -729,14 +894,14 @@ export default function InterviewPage() {
               setResumeQuestionIndex(computedResumeIdx);
             }
 
-            setPhase('intro');
+            setPhase('welcome');
           });
         }
       })
       .catch((err) => {
         console.error('Session load error:', err);
         setLoadError('Failed to load interview session. Please check your link.');
-        setPhase('intro');
+        setPhase('welcome');
       });
   }, [sessionId]);
 
@@ -976,6 +1141,9 @@ export default function InterviewPage() {
   // PRACTICE INTERVIEW WORKFLOW (Automatic TTS Reading -> Prep -> Recording)
   // =========================================================================
   const startPracticeWorkflow = () => {
+    if (typeof document !== 'undefined' && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
     stopSpeaking();
     setIsPractice(true);
     setPracticeBlobUrl(null);
@@ -1075,6 +1243,9 @@ export default function InterviewPage() {
   // REAL INTERVIEW WORKFLOW (Automatic TTS Reading -> Prep -> Recording)
   // =========================================================================
   const startRealInterviewFromIntro = (targetIndex?: number) => {
+    if (typeof document !== 'undefined' && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
     stopSpeaking();
     setIsPractice(false);
     const startIdx = typeof targetIndex === 'number' ? targetIndex : (resumeQuestionIndex || 0);
@@ -1381,340 +1552,191 @@ export default function InterviewPage() {
     );
   }
 
-  // 2. PRACTICE MODE VIEW
-  if (isPractice) {
+  // 1.5. WELCOME & JOB OVERVIEW SCREEN (Screen 1)
+  if (phase === 'welcome') {
+    const skillsList = jobRole?.skills_required
+      ? jobRole.skills_required
+          .split(/[,•\n]+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
     return (
-      <Shell>
-        <div className="space-y-5">
-          {/* Practice Header Banner */}
-          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-purple-400 bg-purple-950/40 border border-purple-900/60 px-4 py-2.5 rounded-xl">
-            <span className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              Practice Simulation (Unscored Warm-Up)
-            </span>
-            <button
-              onClick={proceedToRealInterview}
-              className="text-slate-300 hover:text-white underline text-[11px] font-normal"
-            >
-              Skip to Real Interview
-            </button>
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 sm:p-6 lg:p-8">
+        <div className="w-full max-w-3xl space-y-4 sm:space-y-5 animate-in fade-in duration-200">
+          {/* Header Card */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-8 space-y-4 shadow-xl">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-950/70 border border-blue-800/80 text-xs font-semibold text-blue-300">
+                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                <span>QuestAI Candidate Assessment</span>
+              </div>
+
+              {expiresAt && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/60 border border-amber-800/80 text-xs font-semibold text-amber-300">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>
+                    Deadline: {deadlineRemaining || new Date(expiresAt).toLocaleDateString()}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                {jobRole?.title || 'Job Interview Assessment'}
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                {session?.candidate_name
+                  ? `Welcome, ${session.candidate_name}. You have been invited to complete this video interview assessment.`
+                  : 'Welcome! You have been invited to complete this one-way video interview assessment.'}
+              </p>
+            </div>
+
+            {/* Job Description & Core Skills */}
+            <div className="pt-3 border-t border-slate-800/80 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                <Briefcase className="w-3.5 h-3.5 text-blue-400" />
+                <span>Job Overview & Description</span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed bg-slate-950/60 p-4 rounded-2xl border border-slate-800/60 whitespace-pre-line">
+                {jobRole?.description ||
+                  'Complete the video interview assessment to showcase your skills, problem-solving ability, and background to our hiring team.'}
+              </p>
+
+              {skillsList.length > 0 && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-xs font-medium text-slate-400">Target Skills Evaluated:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {skillsList.map((skill, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2.5 py-1 rounded-lg bg-blue-950/40 border border-blue-800/60 text-blue-300 text-xs font-medium"
+                      >
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* If Practice is in Review Phase: Show Recorded Practice Playback */}
-          {practicePhase === 'review' ? (
-            <div className="space-y-4 animate-in fade-in duration-200">
-              <div className="relative rounded-2xl overflow-hidden bg-black aspect-video border-2 border-purple-500/80 shadow-xl">
-                {practiceBlobUrl ? (
-                  <video
-                    src={practiceBlobUrl}
-                    controls
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                    Practice video recorded
-                  </div>
-                )}
-                <div className="absolute top-3 left-3 bg-purple-900/90 text-white text-[11px] font-semibold px-2.5 py-1 rounded-full border border-purple-700">
-                  Practice Video Review
+          {/* Assessment Structure & Key Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-4 text-center space-y-1">
+              <span className="text-xs text-slate-400 font-medium">Questions</span>
+              <div className="text-xl sm:text-2xl font-bold text-white">
+                {answers.length || 1}
+              </div>
+              <span className="text-[11px] text-slate-500 block">One-way video</span>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-4 text-center space-y-1">
+              <span className="text-xs text-slate-400 font-medium">Prep Time</span>
+              <div className="text-xl sm:text-2xl font-bold text-amber-400">
+                30s
+              </div>
+              <span className="text-[11px] text-slate-500 block">Per question</span>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-4 text-center space-y-1">
+              <span className="text-xs text-slate-400 font-medium">Answer Limit</span>
+              <div className="text-xl sm:text-2xl font-bold text-blue-400">
+                90s
+              </div>
+              <span className="text-[11px] text-slate-500 block">Max response</span>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5 sm:p-4 text-center space-y-1">
+              <span className="text-xs text-slate-400 font-medium">Integrity</span>
+              <div className="text-xl sm:text-2xl font-bold text-emerald-400 flex items-center justify-center gap-1">
+                <ShieldAlert className="w-5 h-5 text-emerald-400" />
+              </div>
+              <span className="text-[11px] text-slate-500 block">Focus tracked</span>
+            </div>
+          </div>
+
+          {/* Guidelines & Proctoring Checklist */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-blue-400" />
+              <span>Assessment Instructions & Best Practices</span>
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs text-slate-300">
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/40 border border-slate-800/60">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-white block">Quiet Environment</span>
+                  <span>Ensure your room is well-lit, quiet, and free from background interruptions.</span>
                 </div>
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center justify-center shrink-0">
-                    <CheckCheck className="w-5 h-5" />
-                  </div>
-                  <div className="space-y-1">
-                    <h3 className="text-sm font-bold text-white">Practice Question Complete!</h3>
-                    <p className="text-xs text-slate-300 leading-relaxed">
-                      Play your recording above to check your audio volume, room lighting, and camera positioning.
-                      When you are satisfied, click below to start your real interview.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-[11px] text-slate-400">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>Camera video stream verified</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>Microphone audio captured</span>
-                  </div>
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/40 border border-slate-800/60">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-white block">Camera & Mic Testing</span>
+                  <span>On the next screen, you will preview your video and test your microphone.</span>
                 </div>
               </div>
 
-              {/* Action Buttons: Retake OR Proceed to Real Interview */}
-              <div className="flex flex-col sm:flex-row items-center gap-3 pt-1">
-                <button
-                  onClick={startPracticeWorkflow}
-                  className="w-full sm:w-auto px-5 py-3 rounded-xl border border-slate-700 hover:border-slate-600 bg-slate-900 text-slate-300 hover:text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
-                >
-                  <RotateCcw className="w-4 h-4 text-purple-400" />
-                  <span>Retake Practice</span>
-                </button>
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/40 border border-slate-800/60">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-white block">Single-Take Recording</span>
+                  <span>Each question is recorded in a single take. You can try a practice question first.</span>
+                </div>
+              </div>
 
-                <button
-                  onClick={proceedToRealInterview}
-                  className="flex-1 w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-xl text-sm sm:text-base transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
-                >
-                  <span>Proceed to Real Interview</span>
-                  <ArrowRight className="w-4 h-4" />
-                </button>
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-950/40 border border-slate-800/60">
+                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-white block">Focus & Tab-Switch Tracking</span>
+                  <span>Switching tabs or minimizing the browser window during questions is recorded.</span>
+                </div>
               </div>
             </div>
-          ) : (
-            // Live Practice Steps: Speaking, Thinking, Recording
-            <div className="space-y-4">
-              <CameraFrame
-                stream={mediaStream}
-                ring={
-                  practicePhase === 'recording'
-                    ? 'recording'
-                    : practicePhase === 'speaking'
-                    ? 'speaking'
-                    : 'thinking'
-                }
-                error={cameraError}
-                cameraOn={cameraOn}
-                micOn={micOn}
-                onToggleCamera={handleToggleCamera}
-                onToggleMic={handleToggleMic}
-                label="PRACTICE PREVIEW"
-              />
+          </div>
 
-              {/* Practice Question Card */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-2">
-                <span className="font-semibold text-purple-400 text-xs uppercase tracking-wider flex items-center gap-1.5">
-                  <Bot className="w-3.5 h-3.5" />
-                  Practice Question
-                </span>
-                <p className="text-base sm:text-lg font-semibold text-white leading-relaxed">
-                  {practiceQuestionText}
+          {/* Resume In-Progress Warning if Candidate Returning */}
+          {resumeQuestionIndex > 0 && (
+            <div className="p-4 bg-blue-950/50 border border-blue-800 rounded-2xl flex items-start gap-3 text-xs">
+              <div className="w-8 h-8 rounded-xl bg-blue-900/80 text-blue-300 border border-blue-700 flex items-center justify-center shrink-0">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="space-y-0.5">
+                <span className="font-semibold text-white">In-Progress Assessment Found</span>
+                <p className="text-slate-300 leading-relaxed">
+                  You previously answered {resumeQuestionIndex} of {answers.length} questions. Your recorded videos are safely saved on the server. You will resume from Question {resumeQuestionIndex + 1}.
                 </p>
               </div>
-
-              {practicePhase === 'speaking' && (
-                <div className="p-4 bg-purple-950/30 border border-purple-900/60 rounded-2xl flex items-center justify-between">
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-purple-300">
-                    <div className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-ping" />
-                    <span>AI is reading the practice question...</span>
-                  </div>
-                  <button
-                    onClick={skipPracticeSpeaking}
-                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
-                  >
-                    <SkipForward className="w-3.5 h-3.5 text-purple-400" />
-                    <span>Skip to Prep</span>
-                  </button>
-                </div>
-              )}
-
-              {practicePhase === 'thinking' && (
-                <div className="bg-amber-950/30 border border-amber-900/60 rounded-2xl p-4 flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                      Practice Think Time
-                    </span>
-                    <p className="text-xs text-slate-400">Prep your answer. Recording starts automatically.</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-3xl font-bold text-amber-300 tabular-nums">{practiceCountdown}s</div>
-                    <button
-                      onClick={skipPracticeThinking}
-                      className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
-                    >
-                      <span>Start Answering Now</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {practicePhase === 'recording' && (
-                <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
-                      <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                      <span>Recording Practice Answer</span>
-                    </div>
-                    <div className="text-2xl font-bold text-red-300 tabular-nums">{practiceCountdown}s</div>
-                  </div>
-
-                  <button
-                    onClick={stopPracticeRecording}
-                    className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-semibold rounded-xl text-xs sm:text-sm transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Square className="w-3.5 h-3.5 fill-red-400 text-red-400" />
-                    <span>Finished Speaking (Stop Practice Recording)</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </Shell>
-    );
-  }
-
-  // 3. INTRO / HARDWARE VERIFICATION SCREEN
-  if (phase === 'intro') {
-    return (
-      <Shell>
-        <div className="space-y-6">
-          {/* Header Card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-blue-400">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>QuestAI Assessment</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              {jobRole?.title || 'Job Assessment'}
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              {jobRole?.description ||
-                'Ensure your camera and microphone are properly framed and tested before entering the interview.'}
-            </p>
-            <div className="pt-2 flex flex-wrap items-center gap-4 text-xs text-slate-400">
-              <span>{answers.length} Question{answers.length > 1 ? 's' : ''}</span>
-              <span>•</span>
-              <span>AI Voice Prompts</span>
-              <span>•</span>
-              <span>Video Response</span>
-              <span>•</span>
-              <span className="text-blue-400 flex items-center gap-1">
-                <ShieldAlert className="w-3.5 h-3.5" />
-                Integrity Monitored
-              </span>
-            </div>
-
-            {expiresAt && (
-              <div className="mt-2.5 p-3 bg-amber-950/40 border border-amber-800/70 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <span className="flex items-center gap-2 text-amber-300 font-medium">
-                  <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>Assessment Window Deadline:</span>
-                </span>
-                <span className="font-bold text-amber-300 tabular-nums">
-                  {deadlineRemaining ||
-                    new Date(expiresAt).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                </span>
-              </div>
-            )}
-
-            {resumeQuestionIndex > 0 && (
-              <div className="mt-3 p-3.5 bg-blue-950/50 border border-blue-800 rounded-xl flex items-start gap-3 text-xs">
-                <div className="w-7 h-7 rounded-lg bg-blue-900/80 text-blue-300 border border-blue-700 flex items-center justify-center shrink-0 mt-0.5">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                </div>
-                <div className="space-y-0.5">
-                  <span className="font-semibold text-white">Resume In-Progress Interview</span>
-                  <p className="text-slate-300 leading-relaxed">
-                    Welcome back! You previously answered {resumeQuestionIndex} of {answers.length} question{answers.length > 1 ? 's' : ''}. Your recorded responses are safely saved on the server. Clicking below will resume directly from Question {resumeQuestionIndex + 1}.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {loadError && (
-            <div className="p-4 bg-amber-950/40 border border-amber-800 rounded-2xl text-xs text-amber-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0 text-amber-400" />
-              <span>{loadError}</span>
             </div>
           )}
 
-          {/* Camera Frame Preview */}
-          <CameraFrame
-            stream={mediaStream}
-            ring="idle"
-            error={cameraError}
-            onRetry={() => window.location.reload()}
-            cameraOn={cameraOn}
-            micOn={micOn}
-            onToggleCamera={handleToggleCamera}
-            onToggleMic={handleToggleMic}
-            label="SETUP PREVIEW"
-          />
-
-          {/* Hardware Readiness Checks */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Audio & Speaker Verification
-            </h3>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-              <MicVisualizer level={micLevel} />
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={testMic}
-                  disabled={testingMic}
-                  className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors flex items-center gap-1.5"
-                >
-                  <Mic className="w-3.5 h-3.5 text-blue-400" />
-                  <span>{testingMic ? 'Recording 2s...' : 'Test Mic'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={testSpeakerChime}
-                  className="px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors flex items-center gap-1.5"
-                >
-                  <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Test Speaker</span>
-                </button>
-              </div>
-            </div>
-
-            {micTestUrl && (
-              <div className="flex items-center gap-2 pt-2 border-t border-slate-800">
-                <span className="text-xs text-slate-400">Mic Playback:</span>
-                <audio controls src={micTestUrl} className="h-7 flex-1" />
-              </div>
-            )}
-
-          </div>
-
-          {/* Action CTAs: Start Interview Directly OR Practice Question */}
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            <button
-              onClick={startPracticeWorkflow}
-              disabled={!!cameraError}
-              className="w-full sm:w-auto px-5 py-3 rounded-xl border border-purple-500/50 hover:border-purple-400 bg-purple-950/30 text-purple-200 hover:text-white text-sm font-semibold transition-all flex items-center justify-center gap-2"
-            >
-              <RotateCcw className="w-4 h-4 text-purple-400" />
-              <span>Try Practice Question</span>
-            </button>
-
-            <button
-              onClick={() => startRealInterviewFromIntro(resumeQuestionIndex)}
-              disabled={!!cameraError}
-              className="flex-1 w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-semibold rounded-xl text-sm sm:text-base transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
-            >
-              <Play className="w-4 h-4 fill-white" />
-              <span>
-                {resumeQuestionIndex > 0
-                  ? `Resume Interview (Question ${resumeQuestionIndex + 1} of ${answers.length})`
-                  : 'Start Real Interview'}
-              </span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Primary Action Button */}
+          <button
+            onClick={() => {
+              if (typeof document !== 'undefined' && !document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+              }
+              setPhase('intro');
+            }}
+            className="w-full py-3.5 sm:py-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-bold rounded-2xl text-base sm:text-lg transition-all shadow-xl shadow-blue-500/25 flex items-center justify-center gap-2 group"
+          >
+            <span>
+              {resumeQuestionIndex > 0
+                ? `Resume Assessment (Question ${resumeQuestionIndex + 1} of ${answers.length})`
+                : 'Continue to Hardware Check'}
+            </span>
+            <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+          </button>
         </div>
-      </Shell>
+      </div>
     );
   }
 
-  // 4. ALREADY COMPLETED & LOCKED SCREEN (Prevents multiple attempts on completed interview link)
+  // 2. ALREADY COMPLETED & LOCKED SCREEN (Prevents multiple attempts on completed interview link)
   if (phase === 'already_completed') {
     return (
       <Shell>
@@ -1761,7 +1783,7 @@ export default function InterviewPage() {
     );
   }
 
-  // 5. EXPIRED INTERVIEW LINK SCREEN (Assessment Window Closed)
+  // 3. EXPIRED INTERVIEW LINK SCREEN (Assessment Window Closed)
   if (phase === 'expired') {
     return (
       <Shell>
@@ -1822,7 +1844,7 @@ export default function InterviewPage() {
     );
   }
 
-  // 6. COMPLETION SCREEN
+  // 4. COMPLETION SCREEN
   if (phase === 'complete') {
     return (
       <Shell>
@@ -1837,8 +1859,6 @@ export default function InterviewPage() {
             </p>
           </div>
 
-
-
           <div className="pt-4 border-t border-slate-800 text-xs text-slate-500">
             You may now safely close this window.
           </div>
@@ -1847,189 +1867,598 @@ export default function InterviewPage() {
     );
   }
 
-  // 5. LIVE REAL INTERVIEW STUDIO (Speaking, Thinking, Recording, Stopped)
-  return (
-    <Shell>
-      <div className="space-y-5">
-        {/* Progress header */}
-        <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-slate-400">
-          <span className="flex items-center gap-2">
-            <span>{isConversational ? 'Interactive AI Assessment' : `Question ${currentIndex + 1} of ${answers.length}`}</span>
-            <span className="text-[10px] text-emerald-400 font-mono lowercase bg-emerald-950/60 border border-emerald-800/80 px-2 py-0.5 rounded-full flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              focus tracked
-            </span>
-          </span>
-          <span className="text-blue-400">{jobRole?.title || 'QuestAI'}</span>
-        </div>
 
-        {/* Tab-Switch / Focus Warning Toast */}
-        {tabSwitchWarning && (
-          <div className="p-3.5 bg-amber-950/90 border border-amber-600 rounded-2xl flex items-center gap-3 text-xs text-amber-200 animate-in fade-in slide-in-from-top-2 shadow-xl shadow-amber-950/60">
-            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
-            <div className="flex-1">
-              <span className="font-semibold text-amber-300">Integrity Alert: </span>
-              <span>{tabSwitchWarning}</span>
+  // 5. PRACTICE MODE VIEW (Center-Stage Full Video Layout)
+  if (isPractice) {
+    return (
+      <ViewportStudioShell
+        headerLeft={
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-950/60 border border-purple-800/80 text-xs font-semibold text-purple-300">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+              <span>Practice Simulation (Unscored Warm-Up)</span>
             </div>
           </div>
-        )}
-
-        {/* Live Video Camera Frame */}
-        <CameraFrame
-          stream={mediaStream}
-          ring={
-            phase === 'recording'
-              ? 'recording'
-              : phase === 'speaking'
-              ? 'speaking'
-              : phase === 'thinking'
-              ? 'thinking'
-              : 'idle'
-          }
-          error={cameraError}
-          cameraOn={cameraOn}
-          micOn={micOn}
-          onToggleCamera={handleToggleCamera}
-          onToggleMic={handleToggleMic}
-          label="REAL INTERVIEW"
-        />
-
-        {/* Clear eye-level Question Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-semibold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Bot className="w-3.5 h-3.5" />
-              {isConversational ? 'AI Interview Prompt' : `Question ${currentIndex + 1}`}
-            </span>
-            <span className="text-[11px] text-slate-500">
-              {phase === 'speaking'
-                ? 'AI is asking...'
-                : phase === 'thinking'
-                ? 'Preparation Phase'
-                : phase === 'recording'
-                ? 'Recording in Progress'
-                : 'Answer Finished'}
-            </span>
-          </div>
-          <p className="text-base sm:text-lg font-semibold text-white leading-relaxed">
-            {isConversational ? currentAiPrompt : currentAnswer?.question_text}
-          </p>
-        </div>
-
-        {/* SPEAKING: AI speaks the question aloud automatically when question starts */}
-        {phase === 'speaking' && (
-          <div className="p-4 bg-blue-950/30 border border-blue-900/60 rounded-2xl flex items-center justify-between animate-in fade-in duration-200">
-            <div className="flex items-center gap-2.5 text-xs font-semibold text-blue-300">
-              <div className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping" />
-              <span>AI is reading the question to you...</span>
-            </div>
+        }
+        headerRight={
+          <div className="flex items-center gap-2">
             <button
-              onClick={skipRealSpeaking}
-              className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-colors"
+              onClick={toggleFullscreen}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white text-xs font-medium transition-all shadow-sm"
+              title={isFullscreen ? 'Exit Full Screen' : 'Enter Full Screen'}
             >
-              <SkipForward className="w-3.5 h-3.5 text-blue-400" />
-              <span>Skip Voice & Prep</span>
-            </button>
-          </div>
-        )}
-
-        {/* THINKING / PREP TIME: Auto-starts after speech ends */}
-        {phase === 'thinking' && (
-          <div className="bg-amber-950/30 border border-amber-900/60 rounded-2xl p-4 sm:p-5 flex items-center justify-between animate-in fade-in duration-200">
-            <div className="space-y-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                Think Time
-              </span>
-              <p className="text-xs text-slate-300">
-                Collect your thoughts. Recording will start automatically when timer ends.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="text-3xl font-bold text-amber-300 tabular-nums">{countdown}s</div>
-              <button
-                onClick={skipRealThinking}
-                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-colors shadow-md"
-              >
-                <span>Start Answering Now</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* RECORDING: Live candidate answer recording */}
-        {phase === 'recording' && (
-          <div className="bg-red-950/30 border border-red-900/60 rounded-2xl p-4 sm:p-5 space-y-3 animate-in fade-in duration-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-red-400">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
-                <span>Recording Answer</span>
-              </div>
-              <div className="text-2xl font-bold text-red-300 tabular-nums">{countdown}s remaining</div>
-            </div>
-
-            <button
-              onClick={stopRealRecording}
-              className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
-            >
-              <Square className="w-4 h-4 fill-white" />
-              <span>Finish Answer (Stop Recording)</span>
-            </button>
-          </div>
-        )}
-
-        {/* STOPPED: Answer finished, automatic progressive upload, clean next step */}
-        {phase === 'stopped' && (
-          <div className="space-y-3 animate-in fade-in duration-200">
-            <div className="p-3.5 bg-emerald-950/40 border border-emerald-900/80 rounded-xl text-xs font-semibold text-emerald-300 flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                <span>Question {currentIndex + 1} response captured</span>
-              </span>
-              <span className="text-[11px] text-emerald-400 font-normal">
-                {uploadProgressStatus[currentAnswer?.id || ''] === 'uploading'
-                  ? 'Saving to server...'
-                  : 'Ready'}
-              </span>
-            </div>
-
-            {uploadError && (
-              <div className="p-3 bg-red-950/40 border border-red-900 rounded-xl text-xs text-red-300 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                <span>{uploadError}</span>
-              </div>
-            )}
-
-            <button
-              onClick={isConversational ? handleNextTurnConversational : goToNextQuestion}
-              disabled={submitting}
-              className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-semibold rounded-2xl text-base transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
-            >
-              {submitting ? (
+              {isFullscreen ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Submitting assessment...</span>
-                </>
-              ) : isConversational ? (
-                <>
-                  <span>Next AI Turn</span>
-                  <ArrowRight className="w-5 h-5" />
-                </>
-              ) : currentIndex + 1 < answers.length ? (
-                <>
-                  <span>Next Question ({currentIndex + 2} of {answers.length})</span>
-                  <ArrowRight className="w-5 h-5" />
+                  <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline">Exit Fullscreen</span>
                 </>
               ) : (
                 <>
-                  <span>Submit Final Assessment</span>
-                  <CheckCircle2 className="w-5 h-5" />
+                  <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline">Full Screen</span>
                 </>
               )}
             </button>
+            <button
+              onClick={proceedToRealInterview}
+              className="text-xs text-slate-300 hover:text-white underline px-2 py-1 transition-colors font-medium"
+            >
+              Skip to Real Interview →
+            </button>
           </div>
-        )}
+        }
+      >
+        <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 relative">
+          <div className="w-full max-w-5xl h-full max-h-[82vh] md:max-h-[86vh] aspect-video relative flex flex-col justify-center">
+            {practicePhase === 'review' ? (
+              <div className="relative rounded-3xl overflow-hidden bg-black w-full h-full border-2 border-purple-500/80 shadow-2xl">
+                {practiceBlobUrl ? (
+                  <video
+                    src={practiceBlobUrl}
+                    controls
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                    Practice video recorded
+                  </div>
+                )}
+                <div className="absolute top-3 left-3 bg-purple-900/90 text-white text-[11px] font-semibold px-2.5 py-1 rounded-full border border-purple-700 z-10 shadow-md">
+                  Practice Video Review
+                </div>
+
+                {/* Bottom Overlay: Guidance & Buttons without black boxes covering the face */}
+                <div className="absolute bottom-12 sm:bottom-14 left-4 right-4 sm:left-6 sm:right-6 flex flex-col items-center gap-2.5 z-20 pointer-events-none">
+                  {/* Clean text with high contrast drop shadow - NO black box card */}
+                  <div className="text-center pointer-events-auto max-w-xl mx-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
+                    <div className="flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold text-emerald-300 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                      <CheckCheck className="w-4 h-4 text-emerald-400" />
+                      <span>Practice Question Complete!</span>
+                    </div>
+                    <p className="text-xs sm:text-sm text-white font-medium drop-shadow-[0_1px_4px_rgba(0,0,0,1)] mt-0.5">
+                      Play your recording to verify camera framing, lighting, and audio volume.
+                    </p>
+                  </div>
+
+                  {/* Clean buttons directly on screen - NO enclosing black background box */}
+                  <div className="flex items-center justify-center gap-3 pointer-events-auto">
+                    <button
+                      onClick={startPracticeWorkflow}
+                      className="px-4 py-2 rounded-full bg-slate-900/60 hover:bg-slate-900/90 backdrop-blur-sm border border-slate-400/30 text-white text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 shadow-lg hover:border-slate-300/50"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-purple-300" />
+                      <span>Retake Practice</span>
+                    </button>
+
+                    <button
+                      onClick={proceedToRealInterview}
+                      className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-full text-xs sm:text-sm transition-all shadow-lg shadow-blue-500/30 flex items-center gap-2"
+                    >
+                      <span>Proceed to Real Interview</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <CameraFrame
+                stream={mediaStream}
+                ring={
+                  practicePhase === 'recording'
+                    ? 'recording'
+                    : practicePhase === 'speaking'
+                    ? 'speaking'
+                    : 'thinking'
+                }
+                error={cameraError}
+                cameraOn={cameraOn}
+                micOn={micOn}
+                onToggleCamera={handleToggleCamera}
+                onToggleMic={handleToggleMic}
+                label="PRACTICE PREVIEW"
+              >
+                {/* Bottom Overlay: Question & Controls without black box covering face */}
+                <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 flex flex-col items-center gap-2 z-20 pointer-events-none">
+                  {/* Clean Question Text with text-shadow - NO black box card */}
+                  <div className="w-full max-w-2xl text-center pointer-events-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
+                    <div className="flex items-center justify-center gap-2 text-xs font-bold text-purple-300 mb-1 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                      <Bot className="w-3.5 h-3.5" />
+                      <span>Practice Warm-Up Question</span>
+                      {practicePhase === 'speaking' && <span className="text-[11px] text-purple-200 font-normal">• AI is asking...</span>}
+                      {practicePhase === 'thinking' && <span className="text-[11px] text-amber-300 font-normal">• Prep Time</span>}
+                      {practicePhase === 'recording' && <span className="text-[11px] text-red-300 font-normal">• Recording</span>}
+                    </div>
+                    <p className="text-sm sm:text-base font-semibold text-white leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,1)] px-3">
+                      {practiceQuestionText}
+                    </p>
+                  </div>
+
+                  {/* Buttons & Controls directly - NO enclosing black background box */}
+                  <div className="flex flex-wrap items-center justify-center gap-2.5 pointer-events-auto">
+                    {practicePhase === 'recording' && (
+                      <div className="bg-black/40 backdrop-blur-sm px-2.5 py-1.5 rounded-full border border-white/20">
+                        <MicVisualizer level={micLevel} />
+                      </div>
+                    )}
+
+                    {/* Camera & Mic Toggles */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={handleToggleCamera}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
+                          cameraOn ? 'bg-black/50 hover:bg-black/75 text-white border border-white/20' : 'bg-red-600 text-white border border-red-400'
+                        }`}
+                        title={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                      >
+                        {cameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                      </button>
+
+                      <button
+                        onClick={handleToggleMic}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
+                          micOn ? 'bg-black/50 hover:bg-black/75 text-white border border-white/20' : 'bg-red-600 text-white border border-red-400'
+                        }`}
+                        title={micOn ? 'Turn mic off' : 'Turn mic on'}
+                      >
+                        {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                      </button>
+                    </div>
+
+                    {/* Action button */}
+                    {practicePhase === 'speaking' && (
+                      <button
+                        onClick={skipPracticeSpeaking}
+                        className="px-4 py-2 rounded-full bg-slate-900/60 hover:bg-slate-900/90 text-white text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-400/30 backdrop-blur-sm shadow-lg"
+                      >
+                        <SkipForward className="w-3.5 h-3.5 text-purple-300" />
+                        <span>Skip to Prep</span>
+                      </button>
+                    )}
+
+                    {practicePhase === 'thinking' && (
+                      <button
+                        onClick={skipPracticeThinking}
+                        className="px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-lg"
+                      >
+                        <span>Start Answering Now ({practiceCountdown}s)</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {practicePhase === 'recording' && (
+                      <button
+                        onClick={stopPracticeRecording}
+                        className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-full text-xs sm:text-sm transition-all flex items-center gap-2 shadow-lg shadow-red-500/30"
+                      >
+                        <Square className="w-3.5 h-3.5 fill-white" />
+                        <span>Finished Speaking ({practiceCountdown}s)</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </CameraFrame>
+            )}
+          </div>
+        </div>
+      </ViewportStudioShell>
+    );
+  }
+
+  // 6. INTRO / HARDWARE VERIFICATION SCREEN (Center-Stage Full Video Layout)
+  if (phase === 'intro') {
+    return (
+      <ViewportStudioShell
+        headerLeft={
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <button
+              onClick={() => setPhase('welcome')}
+              className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-colors shrink-0"
+              title="Return to Job Overview & Instructions"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Job Overview</span>
+            </button>
+            <div className="h-4 w-[1px] bg-slate-800 hidden sm:block shrink-0" />
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-semibold uppercase tracking-wider text-blue-400 flex items-center gap-1 shrink-0">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">QuestAI Setup</span>
+              </span>
+              <span className="text-slate-500 hidden sm:inline">•</span>
+              <span className="text-xs font-medium text-slate-300 truncate max-w-[150px] sm:max-w-xs">
+                {jobRole?.title || 'Job Assessment'}
+              </span>
+            </div>
+          </div>
+        }
+        headerRight={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleFullscreen}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white text-xs font-medium transition-all shadow-sm"
+              title={isFullscreen ? 'Exit Full Screen' : 'Enter Full Screen'}
+            >
+              {isFullscreen ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline">Exit Fullscreen</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline">Full Screen</span>
+                </>
+              )}
+            </button>
+
+            <span className="text-[11px] text-emerald-400 font-mono bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="hidden sm:inline">integrity tracked</span>
+            </span>
+
+            {expiresAt && (
+              <span className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/60 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                <Clock className="w-3 h-3 text-amber-400" />
+                <span className="hidden sm:inline">{deadlineRemaining || 'Active Deadline'}</span>
+              </span>
+            )}
+          </div>
+        }
+      >
+        <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 relative">
+          <div className="w-full max-w-5xl h-full max-h-[82vh] md:max-h-[86vh] aspect-video relative flex flex-col justify-center">
+            <CameraFrame
+              stream={mediaStream}
+              ring="idle"
+              error={cameraError}
+              onRetry={() => window.location.reload()}
+              cameraOn={cameraOn}
+              micOn={micOn}
+              onToggleCamera={handleToggleCamera}
+              onToggleMic={handleToggleMic}
+              label="SETUP PREVIEW"
+            >
+              {/* Bottom Overlay: Guidance & Controls without black box covering face */}
+              <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 flex flex-col items-center gap-2 z-20 pointer-events-none">
+                {/* Clean Guidance Text - NO black box card */}
+                <div className="w-full max-w-2xl text-center pointer-events-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
+                  <div className="flex items-center justify-center gap-2 text-xs font-bold text-blue-300 mb-0.5 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Hardware Readiness & Audio Check</span>
+                    {resumeQuestionIndex > 0 && (
+                      <span className="text-[11px] text-emerald-400 font-normal">
+                        • Resuming from Question {resumeQuestionIndex + 1}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs sm:text-sm text-white font-medium drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                    Verify camera framing and ensure your microphone registers sound before beginning your interview.
+                  </p>
+                  {micTestUrl && (
+                    <div className="flex items-center justify-center gap-2 pt-1 mt-1">
+                      <span className="text-[11px] text-slate-200 drop-shadow">Mic Playback:</span>
+                      <audio controls src={micTestUrl} className="h-6" />
+                    </div>
+                  )}
+                  {loadError && (
+                    <div className="mt-1 text-xs text-amber-300 font-medium drop-shadow">
+                      {loadError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Clean Controls directly - NO enclosing black background box */}
+                <div className="flex flex-wrap items-center justify-center gap-2.5 pointer-events-auto">
+                  {/* Mic Visualizer */}
+                  <div className="bg-black/40 backdrop-blur-sm px-2.5 py-1.5 rounded-full border border-white/20">
+                    <MicVisualizer level={micLevel} />
+                  </div>
+
+                  {/* Camera & Mic Toggles */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleToggleCamera}
+                      className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
+                        cameraOn ? 'bg-black/50 hover:bg-black/75 text-white border border-white/20' : 'bg-red-600 text-white border border-red-400'
+                      }`}
+                      title={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                    >
+                      {cameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                    </button>
+
+                    <button
+                      onClick={handleToggleMic}
+                      className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
+                        micOn ? 'bg-black/50 hover:bg-black/75 text-white border border-white/20' : 'bg-red-600 text-white border border-red-400'
+                      }`}
+                      title={micOn ? 'Turn mic off' : 'Turn mic on'}
+                    >
+                      {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {/* Audio Test Buttons */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={testMic}
+                      disabled={testingMic}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-black/50 hover:bg-black/75 text-white border border-white/20 transition-all flex items-center gap-1.5 shadow-md"
+                    >
+                      <Mic className="w-3.5 h-3.5 text-blue-300" />
+                      <span>{testingMic ? 'Recording 2s...' : 'Test Mic'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={testSpeakerChime}
+                      className="px-3 py-1.5 rounded-full text-xs font-medium bg-black/50 hover:bg-black/75 text-white border border-white/20 transition-all flex items-center gap-1.5 shadow-md"
+                    >
+                      <Volume2 className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>Test Speaker</span>
+                    </button>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={startPracticeWorkflow}
+                      disabled={!!cameraError}
+                      className="px-3.5 py-1.5 rounded-full border border-purple-400/40 hover:border-purple-300 bg-purple-950/60 hover:bg-purple-900/80 text-purple-200 hover:text-white text-xs font-semibold transition-all flex items-center gap-1.5 shadow-md"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-purple-300" />
+                      <span>Practice</span>
+                    </button>
+
+                    <button
+                      onClick={() => startRealInterviewFromIntro(resumeQuestionIndex)}
+                      disabled={!!cameraError}
+                      className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-40 text-white font-bold rounded-full text-xs sm:text-sm transition-all shadow-lg shadow-blue-500/25 flex items-center gap-1.5"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>
+                        {resumeQuestionIndex > 0
+                          ? `Resume (Q${resumeQuestionIndex + 1})`
+                          : 'Start Real Interview'}
+                      </span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </CameraFrame>
+          </div>
+        </div>
+      </ViewportStudioShell>
+    );
+  }
+
+  // 7. LIVE REAL INTERVIEW STUDIO (Center-Stage Full Video Layout)
+  return (
+    <ViewportStudioShell
+      headerLeft={
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5 shrink-0">
+            <Bot className="w-3.5 h-3.5" />
+            <span>
+              {isConversational ? 'Interactive AI Assessment' : `Question ${currentIndex + 1} of ${answers.length}`}
+            </span>
+          </div>
+          <span className="text-slate-600 hidden sm:inline shrink-0">•</span>
+          <span className="text-xs text-slate-300 truncate max-w-[150px] sm:max-w-sm">
+            {jobRole?.title || 'QuestAI'}
+          </span>
+        </div>
+      }
+      headerRight={
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleFullscreen}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/80 hover:bg-slate-800 border border-slate-700/80 text-slate-200 hover:text-white text-xs font-medium transition-all shadow-sm"
+            title={isFullscreen ? 'Exit Full Screen' : 'Enter Full Screen'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5 text-blue-400" />
+                <span className="hidden sm:inline">Exit Fullscreen</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5 text-blue-400" />
+                <span className="hidden sm:inline">Full Screen</span>
+              </>
+            )}
+          </button>
+
+          <span className="text-[11px] text-emerald-400 font-mono bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="hidden sm:inline">focus tracked</span>
+          </span>
+        </div>
+      }
+    >
+      {/* Tab-Switch / Focus Warning Alert */}
+      {tabSwitchWarning && (
+        <div className="mb-2 p-2.5 bg-amber-950/90 border border-amber-600 rounded-xl flex items-center gap-2 text-xs text-amber-200 animate-in fade-in shadow-xl shadow-amber-950/60 shrink-0 mx-auto max-w-4xl w-full">
+          <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="flex-1 truncate">
+            <span className="font-semibold text-amber-300">Integrity Alert: </span>
+            <span>{tabSwitchWarning}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 relative">
+        <div className="w-full max-w-5xl h-full max-h-[82vh] md:max-h-[86vh] aspect-video relative flex flex-col justify-center">
+          <CameraFrame
+            stream={mediaStream}
+            ring={
+              phase === 'recording'
+                ? 'recording'
+                : phase === 'speaking'
+                ? 'speaking'
+                : phase === 'thinking'
+                ? 'thinking'
+                : 'idle'
+            }
+            error={cameraError}
+            cameraOn={cameraOn}
+            micOn={micOn}
+            onToggleCamera={handleToggleCamera}
+            onToggleMic={handleToggleMic}
+            label="REAL INTERVIEW"
+          >
+            {/* Bottom Overlay: Question Text & Controls directly - NO black box covering face */}
+            <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 flex flex-col items-center gap-2 z-20 pointer-events-none">
+              {/* Question Text with high-contrast text shadow - NO black box card */}
+              <div className="w-full max-w-2xl text-center pointer-events-auto drop-shadow-[0_2px_8px_rgba(0,0,0,0.95)]">
+                <div className="flex items-center justify-center gap-2 text-xs font-bold text-blue-300 mb-1 drop-shadow-[0_1px_4px_rgba(0,0,0,1)]">
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>
+                    {isConversational ? 'AI Interview Prompt' : `Question ${currentIndex + 1} of ${answers.length}`}
+                  </span>
+                  {phase === 'speaking' && <span className="text-[11px] text-blue-200 font-normal">• AI is asking...</span>}
+                  {phase === 'thinking' && <span className="text-[11px] text-amber-300 font-normal">• Prep Time</span>}
+                  {phase === 'recording' && <span className="text-[11px] text-red-300 font-normal">• Recording Live</span>}
+                  {phase === 'stopped' && <span className="text-[11px] text-emerald-300 font-normal">• Response Captured</span>}
+                </div>
+                <p className="text-sm sm:text-base md:text-lg font-semibold text-white leading-snug drop-shadow-[0_2px_8px_rgba(0,0,0,1)] px-3">
+                  {isConversational ? currentAiPrompt : currentAnswer?.question_text}
+                </p>
+              </div>
+
+              {/* Controls directly - NO enclosing black background box */}
+              <div className="flex flex-wrap items-center justify-center gap-2.5 pointer-events-auto">
+                {/* Audio visualizer */}
+                <div className="bg-black/40 backdrop-blur-sm px-2.5 py-1.5 rounded-full border border-white/20">
+                  <MicVisualizer level={micLevel} />
+                </div>
+
+                {/* Camera & Mic Toggles */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={handleToggleCamera}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
+                      cameraOn ? 'bg-black/50 hover:bg-black/75 text-white border border-white/20' : 'bg-red-600 text-white border border-red-400'
+                    }`}
+                    title={cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                  >
+                    {cameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    onClick={handleToggleMic}
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
+                      micOn ? 'bg-black/50 hover:bg-black/75 text-white border border-white/20' : 'bg-red-600 text-white border border-red-400'
+                    }`}
+                    title={micOn ? 'Turn mic off' : 'Turn mic on'}
+                  >
+                    {micOn ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Action Controls */}
+                {phase === 'speaking' && (
+                  <button
+                    onClick={skipRealSpeaking}
+                    className="px-4 py-2 rounded-full bg-slate-900/60 hover:bg-slate-900/90 text-white text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-400/30 backdrop-blur-sm shadow-lg"
+                  >
+                    <SkipForward className="w-3.5 h-3.5 text-blue-300" />
+                    <span>Skip Voice & Prep</span>
+                  </button>
+                )}
+
+                {phase === 'thinking' && (
+                  <button
+                    onClick={skipRealThinking}
+                    className="px-4 py-2 rounded-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center gap-2 transition-all shadow-lg"
+                  >
+                    <span>Start Answering Now ({countdown}s)</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+
+                {phase === 'recording' && (
+                  <button
+                    onClick={stopRealRecording}
+                    className="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-full text-xs sm:text-sm transition-all flex items-center gap-2 shadow-lg shadow-red-500/30"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-white" />
+                    <span>Finished Speaking ({countdown}s)</span>
+                  </button>
+                )}
+
+                {phase === 'stopped' && (
+                  <div className="flex items-center gap-2">
+                    {uploadProgressStatus[currentAnswer?.id || ''] === 'uploading' && (
+                      <span className="text-xs text-blue-300 font-medium mr-1 flex items-center gap-1 drop-shadow">
+                        <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                        <span>Saving...</span>
+                      </span>
+                    )}
+
+                    {uploadError && (
+                      <span className="text-xs text-red-400 font-medium mr-1 flex items-center gap-1 drop-shadow">
+                        <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                        <span>{uploadError}</span>
+                      </span>
+                    )}
+
+                    <button
+                      onClick={isConversational ? handleNextTurnConversational : goToNextQuestion}
+                      disabled={submitting}
+                      className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-60 text-white font-bold rounded-full text-xs sm:text-sm transition-all shadow-lg shadow-blue-500/30 flex items-center gap-2"
+                    >
+                      {submitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Submitting...</span>
+                        </>
+                      ) : isConversational ? (
+                        <>
+                          <span>Next AI Turn</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      ) : currentIndex + 1 < answers.length ? (
+                        <>
+                          <span>Next Question ({currentIndex + 2} of {answers.length})</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </>
+                      ) : (
+                        <>
+                          <span>Submit Final Assessment</span>
+                          <CheckCircle2 className="w-4 h-4" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CameraFrame>
+        </div>
       </div>
-    </Shell>
+    </ViewportStudioShell>
   );
 }

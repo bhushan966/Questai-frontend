@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/useAuth';
 import { authedFetch } from '@/lib/api';
@@ -24,6 +24,8 @@ import {
   XCircle,
   ShieldCheck,
   AlertTriangle,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 
 interface SessionAnswer {
@@ -71,6 +73,7 @@ interface JobRole {
 
 export default function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
   const [session, setSession] = useState<SessionData | null>(null);
@@ -78,6 +81,49 @@ export default function SessionDetailPage() {
   const [answers, setAnswers] = useState<SessionAnswer[]>([]);
   const [turns, setTurns] = useState<ConversationTurnRecruiter[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Deletion state
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDeleteSession = async () => {
+    if (!session) return;
+    setDeleting(true);
+    try {
+      if (API_URL !== '/api') {
+        await authedFetch(`${API_URL}/sessions/${id}`, { method: 'DELETE' }).catch(() => null);
+      }
+      await authedFetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => null);
+
+      if (typeof window !== 'undefined') {
+        try {
+          const stored = localStorage.getItem('questai_saved_sessions');
+          if (stored) {
+            const list = JSON.parse(stored);
+            const filtered = list.filter((s: any) => s.id !== id);
+            localStorage.setItem('questai_saved_sessions', JSON.stringify(filtered));
+          }
+
+          const candMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
+          delete candMap[id];
+          localStorage.setItem('questai_candidate_names', JSON.stringify(candMap));
+
+          const subMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
+          delete subMap[id];
+          localStorage.setItem('questai_submitted_sessions', JSON.stringify(subMap));
+
+          const evalMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
+          delete evalMap[id];
+          localStorage.setItem('questai_session_evaluations', JSON.stringify(evalMap));
+        } catch {}
+      }
+
+      router.push(`/dashboard/job-roles/${session.job_role_id}`);
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+      setDeleting(false);
+    }
+  };
 
   // Scorecard State
   const [technicalRating, setTechnicalRating] = useState<number>(0);
@@ -443,6 +489,16 @@ export default function SessionDetailPage() {
                 In Progress
               </span>
             )}
+
+            <button
+              type="button"
+              onClick={() => setIsDeleteOpen(true)}
+              className="px-3 py-1 rounded-full text-xs font-semibold text-slate-400 hover:text-red-400 bg-slate-800/80 hover:bg-red-950/40 border border-slate-700/80 hover:border-red-900/60 transition-colors flex items-center gap-1.5 shadow-sm"
+              title="Delete candidate submission"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete</span>
+            </button>
           </div>
         </div>
 
@@ -887,6 +943,58 @@ export default function SessionDetailPage() {
           </div>
         </div>
       </main>
+
+      {/* Delete Candidate Submission Modal */}
+      {isDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="w-10 h-10 rounded-xl bg-red-950/60 border border-red-800/80 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-white text-base">Delete Submission?</h3>
+                <p className="text-xs text-slate-400">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Are you sure you want to delete the candidate interview submission for{' '}
+              <strong className="text-white">{displayName}</strong> (ID: <span className="font-mono text-slate-400">{session.candidate_id}</span>)?
+              All recorded videos, answers, AI transcripts, and evaluation scorecards will be permanently removed.
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsDeleteOpen(false)}
+                disabled={deleting}
+                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white bg-slate-800/70 hover:bg-slate-800 border border-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSession}
+                disabled={deleting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-red-600 hover:bg-red-500 disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-lg shadow-red-900/30"
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Submission</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

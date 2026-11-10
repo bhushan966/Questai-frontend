@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 import fs from 'fs';
 import path from 'path';
 
@@ -132,12 +132,12 @@ export async function POST(
     answer.status = 'completed';
     answer.submitted_at = new Date().toISOString();
 
-    // 4. CRITICAL: Persist answer record & video_url directly into Supabase Database `answers` table
-    if (supabase) {
+    // 4. CRITICAL: Persist answer record & video_url directly into Supabase Database `answers` table if valid UUID
+    if (supabase && isUUID(answer.session_id)) {
       try {
         await supabase.from('answers').upsert([
           {
-            id: answer.id,
+            id: isUUID(answer.id) ? answer.id : crypto.randomUUID(),
             session_id: answer.session_id,
             question_id: answer.question_id,
             question_text: answer.question_text,

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Question, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function POST(
   request: Request,
@@ -61,16 +61,21 @@ export async function POST(
   );
   mockStore.questions.push(...generatedQuestions);
 
-  // Sync to Supabase
+  // Sync to Supabase if valid UUID
   const supabase = getSupabaseServerClient();
-  if (supabase) {
+  if (supabase && isUUID(id)) {
     try {
       await supabase
         .from('questions')
         .delete()
         .eq('job_role_id', id)
         .eq('generated_by', 'ai');
-      await supabase.from('questions').upsert(generatedQuestions);
+      await supabase.from('questions').upsert(
+        generatedQuestions.map((q) => ({
+          ...q,
+          id: isUUID(q.id) ? q.id : crypto.randomUUID(),
+        }))
+      );
     } catch (err) {
       console.warn('[Supabase DB] Error syncing generated questions:', err);
     }

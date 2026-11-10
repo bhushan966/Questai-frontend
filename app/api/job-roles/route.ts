@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, JobRole, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET() {
   const supabase = getSupabaseServerClient();
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const newRole: JobRole = {
-      id: body.id || `role-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: body.id || crypto.randomUUID(),
       title: body.title || 'Untitled Role',
       description: body.description || '',
       skills_required: body.skills_required || null,
@@ -44,9 +44,9 @@ export async function POST(request: Request) {
       mockStore.deletedRoleIds = mockStore.deletedRoleIds.filter((id) => id !== newRole.id);
     }
 
-    // 1. Persist directly to Supabase Database if configured
+    // 1. Persist directly to Supabase Database if configured and valid UUID
     const supabase = getSupabaseServerClient();
-    if (supabase) {
+    if (supabase && isUUID(newRole.id)) {
       try {
         const { error: sbErr } = await supabase
           .from('job_roles')
