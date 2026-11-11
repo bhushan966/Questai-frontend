@@ -9,6 +9,7 @@ import { API_URL } from '@/lib/config';
 import { DashboardNav } from '@/components/DashboardNav';
 import { EditJobRoleModal } from '@/components/EditJobRoleModal';
 import { DeleteJobRoleModal } from '@/components/DeleteJobRoleModal';
+import { BatchInviteModal } from '@/components/BatchInviteModal';
 import {
   ArrowLeft,
   Sparkles,
@@ -98,6 +99,7 @@ export default function JobRoleSessionsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'submitted' | 'pending' | 'shortlisted'>('all');
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isBatchInviteOpen, setIsBatchInviteOpen] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [duplicateSuccess, setDuplicateSuccess] = useState<string | null>(null);
 
@@ -757,9 +759,20 @@ Hiring Team`;
                     Generate Candidate Interview Link
                   </span>
                 </div>
-                <span className="text-xs text-slate-400">
-                  Select a format below to create a direct link for this role
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 hidden sm:inline">
+                    Inviting multiple candidates?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsBatchInviteOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+                    title="Batch invite multiple candidates at once"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Batch Invite</span>
+                  </button>
+                </div>
               </div>
 
               {/* Optional candidate name & email */}
@@ -1266,6 +1279,18 @@ Hiring Team`;
             </div>
           </div>
         </div>
+      )}
+
+      {/* QuestAI Batch Candidate Invite Queue Modal */}
+      {role && (
+        <BatchInviteModal
+          isOpen={isBatchInviteOpen}
+          onClose={() => setIsBatchInviteOpen(false)}
+          role={role}
+          onSessionsCreated={(newSessions) => {
+            setSessions((prev) => [...newSessions, ...prev]);
+          }}
+        />
       )}
     </div>
   );
