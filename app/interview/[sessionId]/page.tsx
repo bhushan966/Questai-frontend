@@ -57,6 +57,7 @@ interface JobRole {
   title: string;
   description: string;
   skills_required: string | null;
+  company_name?: string | null;
 }
 
 interface Answer {
@@ -658,16 +659,18 @@ export default function InterviewPage() {
         // 1. Check if job_role is already attached to session response
         let initialRole: JobRole | null = (sess as any).job_role || null;
 
-        // 2. Check URL query parameters (?roleTitle=...&roleDesc=...&roleSkills=...)
+        // 2. Check URL query parameters (?roleTitle=...&roleDesc=...&roleSkills=...&company=...)
         let paramTitle: string | null = null;
         let paramDesc: string | null = null;
         let paramSkills: string | null = null;
+        let paramCompany: string | null = null;
         if (typeof window !== 'undefined') {
           try {
             const urlParams = new URLSearchParams(window.location.search);
-            paramTitle = urlParams.get('roleTitle');
-            paramDesc = urlParams.get('roleDesc');
+            paramTitle = urlParams.get('roleTitle') || urlParams.get('role_title');
+            paramDesc = urlParams.get('roleDesc') || urlParams.get('role_desc');
             paramSkills = urlParams.get('roleSkills');
+            paramCompany = urlParams.get('company');
           } catch {}
         }
 
@@ -703,12 +706,18 @@ export default function InterviewPage() {
           paramSkills ||
           (sess as any).skills_required ||
           null;
+        const resolvedCompany =
+          initialRole?.company_name ||
+          paramCompany ||
+          (sess as any).company_name ||
+          null;
 
         setJobRole({
           id: sess.job_role_id || initialRole?.id || 'role-default',
           title: resolvedTitle,
           description: resolvedDesc,
           skills_required: resolvedSkills,
+          company_name: resolvedCompany,
         });
 
         // 5. Also async-fetch from backend endpoints to enrich/sync with latest server state
@@ -752,6 +761,7 @@ export default function InterviewPage() {
               title: fTitle,
               description: fDesc,
               skills_required: fetchedRole.skills_required || resolvedSkills,
+              company_name: fetchedRole.company_name || resolvedCompany,
             });
           }
         });
@@ -1422,6 +1432,36 @@ export default function InterviewPage() {
         } catch {}
       }
 
+      // Dispatch real-time submission alert notification for recruiter
+      try {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: sessionId,
+            candidate_name: session?.candidate_name || 'Candidate',
+            job_role_id: jobRole?.id || session?.job_role_id,
+            job_role_title: jobRole?.title || 'Video Interview Assessment',
+            company_name: jobRole?.company_name || null,
+          }),
+        });
+
+        if (typeof window !== 'undefined') {
+          const storedNotifs = JSON.parse(localStorage.getItem('questai_notifications') || '[]');
+          const newNotif = {
+            id: `notif-${Date.now()}`,
+            session_id: sessionId,
+            candidate_name: session?.candidate_name || 'Candidate',
+            job_role_id: jobRole?.id || session?.job_role_id,
+            job_role_title: jobRole?.title || 'Video Interview Assessment',
+            company_name: jobRole?.company_name || null,
+            submitted_at: new Date().toISOString(),
+            read: false,
+          };
+          localStorage.setItem('questai_notifications', JSON.stringify([newNotif, ...storedNotifs]));
+        }
+      } catch {}
+
       setPhase('complete');
     } catch (err: any) {
       console.error('Final submission error:', err);
@@ -1567,10 +1607,24 @@ export default function InterviewPage() {
           {/* Header Card */}
           <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-8 space-y-4 shadow-xl">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-950/70 border border-blue-800/80 text-xs font-semibold text-blue-300">
-                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                <span>QuestAI Candidate Assessment</span>
-              </div>
+              {jobRole?.company_name ? (
+                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-950 border border-slate-700/80 text-xs font-semibold text-slate-200 shadow-sm">
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-[10px] flex items-center justify-center">
+                    {jobRole.company_name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="font-bold text-white">{jobRole.company_name}</span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-blue-400 font-semibold flex items-center gap-1 text-[11px]">
+                    <Sparkles className="w-3 h-3 text-blue-400" />
+                    Powered by QuestAI
+                  </span>
+                </div>
+              ) : (
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-950/70 border border-blue-800/80 text-xs font-semibold text-blue-300">
+                  <Sparkles className="w-3.5 h-3.5 text-blue-400" />
+                  <span>QuestAI Candidate Assessment</span>
+                </div>
+              )}
 
               {expiresAt && (
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/60 border border-amber-800/80 text-xs font-semibold text-amber-300">
@@ -1588,8 +1642,8 @@ export default function InterviewPage() {
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                 {session?.candidate_name
-                  ? `Welcome, ${session.candidate_name}. You have been invited to complete this video interview assessment.`
-                  : 'Welcome! You have been invited to complete this one-way video interview assessment.'}
+                  ? `Welcome, ${session.candidate_name}. You have been invited${jobRole?.company_name ? ` by ${jobRole.company_name}` : ''} to complete this video interview assessment.`
+                  : `Welcome! You have been invited${jobRole?.company_name ? ` by ${jobRole.company_name}` : ''} to complete this one-way video interview assessment.`}
               </p>
             </div>
 
@@ -1852,11 +1906,14 @@ export default function InterviewPage() {
           <div className="w-16 h-16 rounded-3xl bg-emerald-950/60 text-emerald-400 border border-emerald-800/80 mx-auto flex items-center justify-center shadow-lg shadow-emerald-500/20">
             <CheckCircle2 className="w-8 h-8" />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <h2 className="text-2xl font-bold text-white">Interview Complete!</h2>
             <p className="text-sm text-slate-300 max-w-md mx-auto">
-              Your video recordings and answers have been securely submitted to the hiring team for evaluation.
+              Your video recordings and answers have been securely submitted to {jobRole?.company_name ? `${jobRole.company_name}'s hiring team` : 'the hiring team'} for evaluation.
             </p>
+            <div className="pt-2 text-xs text-slate-400">
+              Assessment powered by <strong className="text-blue-400">QuestAI</strong>
+            </div>
           </div>
 
           <div className="pt-4 border-t border-slate-800 text-xs text-slate-500">
@@ -2081,10 +2138,21 @@ export default function InterviewPage() {
             </button>
             <div className="h-4 w-[1px] bg-slate-800 hidden sm:block shrink-0" />
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-xs font-semibold uppercase tracking-wider text-blue-400 flex items-center gap-1 shrink-0">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">QuestAI Setup</span>
-              </span>
+              {jobRole?.company_name ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-xs shrink-0">
+                  <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-[8px] flex items-center justify-center">
+                    {jobRole.company_name.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="font-semibold text-white text-[11px] truncate max-w-[120px]">{jobRole.company_name}</span>
+                  <span className="text-slate-600">•</span>
+                  <span className="text-[10px] text-blue-400 font-medium hidden sm:inline">Powered by QuestAI</span>
+                </div>
+              ) : (
+                <span className="text-xs font-semibold uppercase tracking-wider text-blue-400 flex items-center gap-1 shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">QuestAI Setup</span>
+                </span>
+              )}
               <span className="text-slate-500 hidden sm:inline">•</span>
               <span className="text-xs font-medium text-slate-300 truncate max-w-[150px] sm:max-w-xs">
                 {jobRole?.title || 'Job Assessment'}
@@ -2266,8 +2334,22 @@ export default function InterviewPage() {
             </span>
           </div>
           <span className="text-slate-600 hidden sm:inline shrink-0">•</span>
+          {jobRole?.company_name && (
+            <>
+              <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-xs shrink-0">
+                <div className="w-3.5 h-3.5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-[8px] flex items-center justify-center">
+                  {jobRole.company_name.charAt(0).toUpperCase()}
+                </div>
+                <span className="font-semibold text-white text-[11px] truncate max-w-[120px]">{jobRole.company_name}</span>
+              </div>
+              <span className="text-slate-600 hidden sm:inline shrink-0">•</span>
+            </>
+          )}
           <span className="text-xs text-slate-300 truncate max-w-[150px] sm:max-w-sm">
-            {jobRole?.title || 'QuestAI'}
+            {jobRole?.title || 'QuestAI Assessment'}
+          </span>
+          <span className="text-[10px] text-slate-500 hidden md:inline ml-0.5 font-medium">
+            (Powered by QuestAI)
           </span>
         </div>
       }

@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { Sparkles, Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Sparkles, Mail, Lock, ArrowRight, ShieldCheck, User, Building } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,15 +20,36 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const { error } =
-      mode === 'login'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+    let authError: any = null;
+
+    if (mode === 'login') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      authError = error;
+    } else {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName.trim() || undefined,
+            name: fullName.trim() || undefined,
+            company_name: companyName.trim() || undefined,
+          },
+        },
+      });
+      authError = error;
+
+      if (!error && typeof window !== 'undefined' && companyName.trim()) {
+        try {
+          localStorage.setItem('questai_user_company', companyName.trim());
+        } catch {}
+      }
+    }
 
     setLoading(false);
 
-    if (error) {
-      setError(error.message);
+    if (authError) {
+      setError(authError.message);
       return;
     }
 
@@ -54,6 +77,44 @@ export default function LoginPage() {
         {/* Card Form */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-5 shadow-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'signup' && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Full Name
+                  </label>
+                  <div className="relative">
+                    <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                      placeholder="e.g. Sarah Connor"
+                      required={mode === 'signup'}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Company / Organization
+                  </label>
+                  <div className="relative">
+                    <Building className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={companyName}
+                      onChange={(e) => setCompanyName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                      placeholder="Enter company name"
+                      required={mode === 'signup'}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
                 Work Email

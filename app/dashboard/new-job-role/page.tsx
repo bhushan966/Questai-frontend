@@ -13,6 +13,7 @@ import {
   Sparkles,
   AlertCircle,
   Check,
+  Building2,
 } from 'lucide-react';
 
 const SUGGESTED_SKILLS = [
@@ -35,6 +36,16 @@ export default function NewJobRolePage() {
   const router = useRouter();
 
   const [title, setTitle] = useState('');
+  const [companyName, setCompanyName] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        localStorage.getItem('questai_user_company') ||
+        (user?.user_metadata?.company_name as string) ||
+        ''
+      );
+    }
+    return (user?.user_metadata?.company_name as string) || '';
+  });
   const [description, setDescription] = useState('');
   const [skillsRequired, setSkillsRequired] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +96,7 @@ export default function NewJobRolePage() {
     const newJobRole = {
       id: newRoleId,
       title: title.trim(),
+      company_name: companyName.trim() || null,
       description: description.trim(),
       skills_required: skillsRequired.trim() || null,
       user_id: user?.id || null,
@@ -94,6 +106,9 @@ export default function NewJobRolePage() {
     // 1. Immediately persist in browser storage so it is never lost
     if (typeof window !== 'undefined') {
       try {
+        if (companyName.trim()) {
+          localStorage.setItem('questai_user_company', companyName.trim());
+        }
         const stored = localStorage.getItem('questai_saved_roles');
         const roles = stored ? JSON.parse(stored) : [];
         const existingFiltered = roles.filter((r: any) => r.id !== newRoleId);
@@ -118,6 +133,7 @@ export default function NewJobRolePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: newJobRole.title,
+          company_name: newJobRole.company_name,
           description: newJobRole.description,
           skills_required: newJobRole.skills_required,
           user_id: user?.id || null,
@@ -210,6 +226,22 @@ export default function NewJobRolePage() {
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
                 required
               />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
+                Hiring Company / Organization
+              </label>
+              <div className="relative">
+                <Building2 className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  placeholder="Enter company name"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
             </div>
 
             <div>

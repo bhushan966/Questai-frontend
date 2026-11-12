@@ -9,12 +9,14 @@ CREATE TABLE IF NOT EXISTS public.job_roles (
     title TEXT NOT NULL,
     description TEXT,
     skills_required TEXT,
+    company_name TEXT, -- Hiring company name (e.g. Acme Corp)
     user_id TEXT, -- Recruiter account ownership (auth.uid())
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Ensure user_id column exists if table was already created
+-- Ensure user_id & company_name columns exist if table was already created
 ALTER TABLE public.job_roles ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.job_roles ADD COLUMN IF NOT EXISTS company_name TEXT;
 
 CREATE TABLE IF NOT EXISTS public.questions (
     id TEXT PRIMARY KEY,

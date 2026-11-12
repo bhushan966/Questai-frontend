@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '@/lib/config';
 import { authedFetch } from '@/lib/api';
-import { X, Sparkles, Save, Tag } from 'lucide-react';
+import { X, Sparkles, Save, Tag, Building2 } from 'lucide-react';
 
 export interface JobRoleData {
   id: string;
   title: string;
+  company_name?: string | null;
   description: string;
   skills_required: string | null;
   created_at?: string;
@@ -27,6 +28,7 @@ export function EditJobRoleModal({
   onSaved,
 }: EditJobRoleModalProps) {
   const [title, setTitle] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [description, setDescription] = useState('');
   const [skills, setSkills] = useState('');
   const [saving, setSaving] = useState(false);
@@ -35,6 +37,7 @@ export function EditJobRoleModal({
   useEffect(() => {
     if (role) {
       setTitle(role.title || '');
+      setCompanyName(role.company_name || '');
       setDescription(role.description || '');
       setSkills(role.skills_required || '');
       setError(null);
@@ -60,6 +63,7 @@ export function EditJobRoleModal({
     const updatedData: JobRoleData = {
       ...role,
       title: title.trim(),
+      company_name: companyName.trim() || null,
       description: description.trim(),
       skills_required: skills.trim() ? skills.trim() : null,
     };
@@ -71,6 +75,7 @@ export function EditJobRoleModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: updatedData.title,
+          company_name: updatedData.company_name,
           description: updatedData.description,
           skills_required: updatedData.skills_required,
         }),
@@ -159,6 +164,22 @@ export function EditJobRoleModal({
               required
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Hiring Company / Organization
+            </label>
+            <div className="relative">
+              <Building2 className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+              <input
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="Enter company name"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">

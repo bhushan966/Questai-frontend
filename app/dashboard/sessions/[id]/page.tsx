@@ -69,6 +69,7 @@ interface JobRole {
   id: string;
   title: string;
   skills_required?: string;
+  company_name?: string | null;
 }
 
 export default function SessionDetailPage() {
@@ -435,9 +436,14 @@ export default function SessionDetailPage() {
                 </span>
               </div>
               <div className="text-xs text-slate-400 mt-1 flex flex-wrap items-center gap-3">
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1.5">
                   <Briefcase className="w-3.5 h-3.5 text-slate-500" />
-                  {role?.title || 'Candidate Interview'}
+                  <span>{role?.title || 'Candidate Interview'}</span>
+                  {role?.company_name && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-800 text-blue-300 border border-slate-700/80 font-semibold text-[10px]">
+                      {role.company_name}
+                    </span>
+                  )}
                 </span>
                 <span>•</span>
                 <span className="flex items-center gap-1">

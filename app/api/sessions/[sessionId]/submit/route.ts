@@ -53,6 +53,31 @@ export async function POST(
     }
   }
 
+  // Record recruiter submission alert notification
+  const associatedRole = mockStore.jobRoles.find((r) => r.id === session.job_role_id);
+  const roleTitle = associatedRole?.title || 'Job Assessment';
+  const companyName = associatedRole?.company_name || null;
+  const recruiterId = associatedRole?.user_id || session.recruiter_id || null;
+
+  if (!mockStore.notifications) {
+    mockStore.notifications = [];
+  }
+
+  const existingNotice = mockStore.notifications.find((n) => n.session_id === sessionId);
+  if (!existingNotice) {
+    mockStore.notifications.unshift({
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      session_id: sessionId,
+      candidate_name: session.candidate_name || `Candidate ${sessionId.slice(0, 8)}`,
+      job_role_id: session.job_role_id,
+      job_role_title: roleTitle,
+      company_name: companyName,
+      recruiter_id: recruiterId,
+      submitted_at: new Date().toISOString(),
+      read: false,
+    });
+  }
+
   persistMockStore();
   return NextResponse.json({ success: true, status: 'submitted' });
 }

@@ -47,6 +47,7 @@ interface BatchInviteModalProps {
     title: string;
     description: string;
     skills_required?: string | null;
+    company_name?: string | null;
   };
   onSessionsCreated?: (newSessions: any[]) => void;
 }
@@ -218,7 +219,8 @@ export function BatchInviteModal({
 
   // Build Gmail compose URL for an individual candidate in the results
   const buildCandidateGmailUrl = (cand: GeneratedBatchCandidate) => {
-    const subject = `Invitation to Interview: ${role.title} at QuestAI`;
+    const companyNameDisp = role.company_name ? role.company_name : '';
+    const subject = `Invitation to Interview: ${role.title}${role.company_name ? ` at ${role.company_name}` : ''}`;
     const deadlineLine = cand.deadlineDisplay
       ? cand.deadlineDisplay
       : deadlineDays > 0
@@ -227,9 +229,9 @@ export function BatchInviteModal({
 
     const body = `Hi ${cand.name},
 
-Thank you for your interest in the ${role.title} position!
+Thank you for your interest in the ${role.title} position${companyNameDisp ? ` at ${companyNameDisp}` : ''}!
 
-We are excited to invite you to complete your interactive QuestAI video assessment. This gives you the opportunity to showcase your problem-solving skills and experience directly to our hiring team.
+We are excited to invite you to complete your interactive video assessment powered by QuestAI. This gives you the opportunity to showcase your problem-solving skills and experience directly to our hiring team.
 
 👉 Access Your Private Interview Session Here:
 ${cand.url}
@@ -243,7 +245,7 @@ Instructions:
 • You will be given warm-up prep time for each question before your response is recorded.
 
 Best regards,
-Hiring Team`;
+${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powered by QuestAI`;
 
     return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
       cand.email
@@ -345,6 +347,7 @@ Hiring Team`;
       if (cand.email.trim()) queryParams.set('email', cand.email.trim());
       queryParams.set('role_title', role.title);
       if (role.description) queryParams.set('role_desc', role.description);
+      if (role.company_name) queryParams.set('company', role.company_name);
       if (deadlineTimestamp) queryParams.set('deadline', deadlineTimestamp.toString());
 
       const fullUrl = `${baseUrl}/interview/${sessionId}?${queryParams.toString()}`;

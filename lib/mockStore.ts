@@ -5,6 +5,7 @@ export interface JobRole {
   title: string;
   description: string;
   skills_required: string | null;
+  company_name?: string | null;
   user_id?: string | null;
   created_at: string;
 }
@@ -62,6 +63,18 @@ export interface ConversationTurn {
   video_url?: string | null;
 }
 
+export interface SubmissionNotification {
+  id: string;
+  session_id: string;
+  candidate_name: string;
+  job_role_id: string;
+  job_role_title: string;
+  company_name?: string | null;
+  recruiter_id?: string | null;
+  submitted_at: string;
+  read: boolean;
+}
+
 // In-memory global store to preserve state across Route Handler invocations in dev/prod
 declare global {
   var __questai_mock_data__: {
@@ -70,6 +83,7 @@ declare global {
     sessions: Session[];
     answers: Answer[];
     turns: ConversationTurn[];
+    notifications: SubmissionNotification[];
     deletedRoleIds: string[];
   } | undefined;
 }
@@ -249,6 +263,7 @@ if (!globalThis.__questai_mock_data__) {
     sessions: initialSessions,
     answers: initialAnswers,
     turns: initialTurns,
+    notifications: [] as SubmissionNotification[],
     deletedRoleIds: [] as string[],
   };
 
@@ -267,6 +282,7 @@ if (!globalThis.__questai_mock_data__) {
         sessions: Array.isArray(saved.sessions) ? saved.sessions : initialStore.sessions,
         answers: Array.isArray(saved.answers) ? saved.answers : initialStore.answers,
         turns: Array.isArray(saved.turns) ? saved.turns : initialStore.turns,
+        notifications: Array.isArray(saved.notifications) ? saved.notifications : [],
         deletedRoleIds: savedDeleted,
       };
     } else {

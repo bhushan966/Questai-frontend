@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       title: body.title || 'Untitled Role',
       description: body.description || '',
       skills_required: body.skills_required || null,
+      company_name: body.company_name ? String(body.company_name).trim() : null,
       user_id: userId,
       created_at: body.created_at || new Date().toISOString(),
     };
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
               title: newRole.title,
               description: newRole.description,
               skills_required: newRole.skills_required,
+              company_name: newRole.company_name,
               user_id: newRole.user_id,
               created_at: newRole.created_at,
             },

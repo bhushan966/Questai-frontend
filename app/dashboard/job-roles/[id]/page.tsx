@@ -40,6 +40,7 @@ interface JobRole {
   title: string;
   description: string;
   skills_required: string | null;
+  company_name?: string | null;
   created_at: string;
 }
 
@@ -503,6 +504,7 @@ export default function JobRoleSessionsPage() {
       if (role?.title) queryParams.set('roleTitle', role.title);
       if (role?.description) queryParams.set('roleDesc', role.description);
       if (role?.skills_required) queryParams.set('roleSkills', role.skills_required);
+      if (role?.company_name) queryParams.set('company', role.company_name);
       const queryStr = queryParams.toString() ? `?${queryParams.toString()}` : '';
 
       setGeneratedLink({
@@ -553,7 +555,8 @@ export default function JobRoleSessionsPage() {
   const getGmailComposeUrl = () => {
     if (!generatedLink || !role) return '#';
     const candidateDisp = generatedLink.candidateName || 'Candidate';
-    const subject = `Invitation: Video Interview for ${role.title}`;
+    const companyNameDisp = role.company_name ? role.company_name : '';
+    const subject = `Invitation: Video Interview for ${role.title}${role.company_name ? ` at ${role.company_name}` : ''}`;
 
     let deadlineLine = 'No expiration deadline.';
     if (generatedLink.expiresAt) {
@@ -570,9 +573,9 @@ export default function JobRoleSessionsPage() {
 
     const body = `Hi ${candidateDisp},
 
-Thank you for your interest in the ${role.title} position!
+Thank you for your interest in the ${role.title} position${companyNameDisp ? ` at ${companyNameDisp}` : ''}!
 
-We would like to invite you to complete a brief video assessment. This interactive session gives you the opportunity to share your experience and thought process with our hiring team.
+We would like to invite you to complete a brief video assessment powered by QuestAI. This interactive session gives you the opportunity to share your experience and thought process directly with our hiring team.
 
 👉 Access Your Interview Session Here:
 ${generatedLink.url}
@@ -586,7 +589,7 @@ Instructions:
 • You will be given prep time for each question before your video answer is recorded.
 
 Best regards,
-Hiring Team`;
+${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powered by QuestAI`;
 
     return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(
       generatedLink.candidateEmail || ''
@@ -678,10 +681,26 @@ Hiring Team`;
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                  {role.title}
-                </h1>
-                <p className="text-xs text-slate-500 mt-1">
+                <div className="flex flex-wrap items-center gap-2.5 mb-1.5">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                    {role.title}
+                  </h1>
+                  {role.company_name ? (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-950 border border-slate-700/80 text-xs font-medium text-slate-200 shadow-sm">
+                      <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-[9px] flex items-center justify-center">
+                        {role.company_name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="font-semibold text-white">{role.company_name}</span>
+                      <span className="text-slate-500">•</span>
+                      <span className="text-[11px] text-blue-400">Powered by QuestAI</span>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-slate-400 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
+                      QuestAI Standard
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500">
                   Created on {new Date(role.created_at).toLocaleDateString()}
                 </p>
               </div>

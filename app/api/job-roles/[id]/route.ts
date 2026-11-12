@@ -75,6 +75,10 @@ export async function PATCH(
       updates.skills_required = body.skills_required ? String(body.skills_required).trim() : null;
       if (role) role.skills_required = updates.skills_required;
     }
+    if (body.company_name !== undefined) {
+      updates.company_name = body.company_name ? String(body.company_name).trim() : null;
+      if (role) role.company_name = updates.company_name;
+    }
 
     const supabase = getSupabaseServerClient();
     if (supabase && isUUID(id) && Object.keys(updates).length > 0) {
