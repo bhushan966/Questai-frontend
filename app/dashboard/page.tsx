@@ -73,10 +73,16 @@ export default function DashboardPage() {
           const deletedStored = localStorage.getItem('questai_deleted_roles');
           if (deletedStored) deletedRoleIds = JSON.parse(deletedStored);
 
-          const stored = localStorage.getItem('questai_saved_roles');
+          const userKey = user?.id ? `questai_saved_roles_${user.id}` : null;
+          const userStored = userKey ? localStorage.getItem(userKey) : null;
+          const stored = userStored || localStorage.getItem('questai_saved_roles');
           if (stored) {
             const parsed = JSON.parse(stored);
-            localRoles = parsed.filter((r: JobRole) => !deletedRoleIds.includes(r.id));
+            localRoles = parsed.filter((r: JobRole) => {
+              if (deletedRoleIds.includes(r.id)) return false;
+              if (user?.id && (r as any).user_id && (r as any).user_id !== user.id) return false;
+              return true;
+            });
             if (isMounted && localRoles.length > 0) {
               setJobRoles(localRoles);
             }

@@ -1,16 +1,24 @@
 import { NextResponse } from 'next/server';
 import { mockStore, JobRole, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID, getAuthUserId } from '@/lib/supabaseServer';
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = getSupabaseServerClient();
+  const userId = await getAuthUserId(request);
 
   if (supabase) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('job_roles')
         .select('*')
         .order('created_at', { ascending: false });
+
+      // Strict recruiter isolation: only show user's own roles (or unassigned templates)
+      if (userId) {
+        query = query.or(`user_id.eq.${userId},user_id.is.null`);
+      }
+
+      const { data, error } = await query;
 
       if (!error && Array.isArray(data)) {
         // Sync local mockStore with Supabase data so in-memory cache stays aligned
@@ -24,18 +32,25 @@ export async function GET() {
 
   // Fallback to local store if Supabase table is not yet created or offline
   const deletedSet = new Set(mockStore.deletedRoleIds || []);
-  const active = mockStore.jobRoles.filter((r) => !deletedSet.has(r.id));
+  const active = mockStore.jobRoles.filter((r) => {
+    if (deletedSet.has(r.id)) return false;
+    if (userId && r.user_id && r.user_id !== userId) return false;
+    return true;
+  });
   return NextResponse.json(active);
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const userId = (await getAuthUserId(request)) || body.user_id || null;
+
     const newRole: JobRole = {
       id: body.id || crypto.randomUUID(),
       title: body.title || 'Untitled Role',
       description: body.description || '',
       skills_required: body.skills_required || null,
+      user_id: userId,
       created_at: body.created_at || new Date().toISOString(),
     };
 
@@ -56,6 +71,7 @@ export async function POST(request: Request) {
               title: newRole.title,
               description: newRole.description,
               skills_required: newRole.skills_required,
+              user_id: newRole.user_id,
               created_at: newRole.created_at,
             },
           ]);

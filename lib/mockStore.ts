@@ -5,6 +5,7 @@ export interface JobRole {
   title: string;
   description: string;
   skills_required: string | null;
+  user_id?: string | null;
   created_at: string;
 }
 
@@ -23,6 +24,7 @@ export interface Session {
   job_role_id: string;
   candidate_id: string;
   candidate_name?: string;
+  recruiter_id?: string | null;
   question_source: 'ai' | 'manual';
   mode: 'recorded' | 'conversational';
   status: 'not_started' | 'in_progress' | 'submitted';

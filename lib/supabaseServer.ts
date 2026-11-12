@@ -31,3 +31,27 @@ export function isUUID(str: string | null | undefined): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
+export async function getAuthUserId(request: Request): Promise<string | null> {
+  const customUserId = request.headers.get('x-user-id');
+  if (customUserId && typeof customUserId === 'string' && customUserId.trim()) {
+    return customUserId.trim();
+  }
+
+  const authHeader = request.headers.get('authorization');
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    const supabase = getSupabaseServerClient();
+    if (supabase && token && !token.startsWith('mock-')) {
+      try {
+        const { data } = await supabase.auth.getUser(token);
+        if (data?.user?.id) return data.user.id;
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  return null;
+}
+
+

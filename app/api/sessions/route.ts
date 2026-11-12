@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mockStore, Session, Answer, persistMockStore } from '@/lib/mockStore';
-import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
+import { getSupabaseServerClient, isUUID, getAuthUserId } from '@/lib/supabaseServer';
 
 // Helper to clean up any duplicate ghost sessions
 function cleanDuplicateSessions(sessions: Session[]): Session[] {
@@ -28,14 +28,22 @@ function cleanDuplicateSessions(sessions: Session[]): Session[] {
   return toKeep;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = getSupabaseServerClient();
+  const userId = await getAuthUserId(request);
+
   if (supabase) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('sessions')
         .select('*')
         .order('created_at', { ascending: false });
+
+      if (userId) {
+        query = query.or(`recruiter_id.eq.${userId},recruiter_id.is.null`);
+      }
+
+      const { data, error } = await query;
 
       if (!error && Array.isArray(data)) {
         // Merge with local mockStore
@@ -96,12 +104,14 @@ export async function POST(request: Request) {
       }
     }
 
+    const userId = (await getAuthUserId(request)) || body.recruiter_id || null;
     const sessionId = requestedId || crypto.randomUUID();
     const newSession: Session = {
       id: sessionId,
       job_role_id,
       candidate_id: candidate_id || `cand-${Date.now().toString(36)}`,
       candidate_name: candidate_name || (candidate_id ? `Candidate ${candidate_id.slice(0, 8)}` : `Candidate ${sessionId.slice(0, 8)}`),
+      recruiter_id: userId,
       question_source: question_source || 'ai',
       mode: mode === 'conversational' ? 'conversational' : 'recorded',
       status: 'not_started',
@@ -121,6 +131,7 @@ export async function POST(request: Request) {
             job_role_id: newSession.job_role_id,
             candidate_id: newSession.candidate_id,
             candidate_name: newSession.candidate_name,
+            recruiter_id: newSession.recruiter_id,
             question_source: newSession.question_source,
             mode: newSession.mode,
             status: newSession.status,

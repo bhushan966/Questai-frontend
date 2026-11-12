@@ -2,9 +2,11 @@ import { supabase } from '@/lib/supabase';
 
 export async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   let token: string | undefined;
+  let userId: string | undefined;
   try {
     const { data } = await supabase.auth.getSession();
     token = data.session?.access_token;
+    userId = data.session?.user?.id;
   } catch {
     // Session retrieval error fallback
   }
@@ -15,6 +17,9 @@ export async function authedFetch(url: string, options: RequestInit = {}): Promi
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (userId) {
+    headers['x-user-id'] = userId;
   }
 
   // Handle trailing slash for FastAPI routers when targeting external backend

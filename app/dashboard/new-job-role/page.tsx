@@ -87,6 +87,7 @@ export default function NewJobRolePage() {
       title: title.trim(),
       description: description.trim(),
       skills_required: skillsRequired.trim() || null,
+      user_id: user?.id || null,
       created_at: new Date().toISOString(),
     };
 
@@ -97,6 +98,13 @@ export default function NewJobRolePage() {
         const roles = stored ? JSON.parse(stored) : [];
         const existingFiltered = roles.filter((r: any) => r.id !== newRoleId);
         localStorage.setItem('questai_saved_roles', JSON.stringify([newJobRole, ...existingFiltered]));
+
+        if (user?.id) {
+          const userKey = `questai_saved_roles_${user.id}`;
+          const userStored = localStorage.getItem(userKey);
+          const userRoles = userStored ? JSON.parse(userStored) : [];
+          localStorage.setItem(userKey, JSON.stringify([newJobRole, ...userRoles.filter((r: any) => r.id !== newRoleId)]));
+        }
       } catch (e) {
         console.warn('Storage save notice:', e);
       }
@@ -112,6 +120,7 @@ export default function NewJobRolePage() {
           title: newJobRole.title,
           description: newJobRole.description,
           skills_required: newJobRole.skills_required,
+          user_id: user?.id || null,
         }),
       });
 
@@ -127,6 +136,13 @@ export default function NewJobRolePage() {
               const roles = stored ? JSON.parse(stored) : [];
               const updated = [newJobRole, ...roles.filter((r: any) => r.id !== newRoleId && r.title !== newJobRole.title)];
               localStorage.setItem('questai_saved_roles', JSON.stringify(updated));
+
+              if (user?.id) {
+                const userKey = `questai_saved_roles_${user.id}`;
+                const userStored = localStorage.getItem(userKey);
+                const userRoles = userStored ? JSON.parse(userStored) : [];
+                localStorage.setItem(userKey, JSON.stringify([newJobRole, ...userRoles.filter((r: any) => r.id !== newRoleId && r.title !== newJobRole.title)]));
+              }
             } catch {}
           }
         }

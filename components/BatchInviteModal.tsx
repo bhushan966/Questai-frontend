@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useId } from 'react';
+import { authedFetch } from '@/lib/api';
 import {
   X,
   Sparkles,
@@ -293,10 +294,10 @@ Hiring Team`;
         skills_required: role.skills_required,
       };
 
-      // 1. Try internal Next.js API route
+      // 1. Try internal Next.js API route with recruiter auth
       let createdSession: any = null;
       try {
-        const res = await fetch('/api/sessions', {
+        const res = await authedFetch('/api/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(sessionPayload),

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
@@ -7,6 +8,15 @@ import { Sparkles, Briefcase, LogOut } from 'lucide-react';
 
 export function DashboardNav({ activeTab = 'roles' }: { activeTab?: 'roles' | 'new-role' }) {
   const router = useRouter();
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then((res: any) => {
+      if (res?.data?.user?.email) {
+        setUserEmail(res.data.user.email);
+      }
+    });
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -47,6 +57,17 @@ export function DashboardNav({ activeTab = 'roles' }: { activeTab?: 'roles' | 'n
         </div>
 
         <div className="flex items-center gap-3">
+          {userEmail && (
+            <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300 shadow-sm">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold flex items-center justify-center text-[10px]">
+                {userEmail.charAt(0).toUpperCase()}
+              </div>
+              <span className="max-w-[160px] truncate font-medium text-slate-200">
+                {userEmail}
+              </span>
+            </div>
+          )}
+
           <button
             onClick={handleLogout}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-900 rounded-lg transition-colors"
