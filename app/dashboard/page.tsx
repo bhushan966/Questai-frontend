@@ -387,7 +387,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <DashboardNav activeTab="roles" />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className="flex-1 max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Supabase Cloud Connection & Storage Diagnostic Status */}
         <SupabaseDiagnosticBanner />
 
@@ -530,7 +530,7 @@ export default function DashboardPage() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredRoles.map((role) => {
                 const skills = role.skills_required
                   ? role.skills_required.split(',').map((s) => s.trim())

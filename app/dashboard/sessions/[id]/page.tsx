@@ -404,7 +404,7 @@ export default function SessionDetailPage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <DashboardNav />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <main className="flex-1 max-w-7xl 2xl:max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         {/* Navigation Breadcrumb */}
         <Link
           href={`/dashboard/job-roles/${session.job_role_id}`}
