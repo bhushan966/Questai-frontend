@@ -401,7 +401,7 @@ export default function DashboardPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
               Recruiter Command Center
             </h1>
-            <p className="text-sm text-slate-400 max-w-xl">
+            <p className="text-sm text-slate-400 max-w-3xl leading-relaxed">
               Create job roles, generate AI or custom candidate interview links, and review recorded answers with automated transcripts and verdicts.
             </p>
           </div>

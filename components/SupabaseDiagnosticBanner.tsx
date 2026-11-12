@@ -186,7 +186,7 @@ export function SupabaseDiagnosticBanner() {
                 Action Required
               </span>
             </div>
-            <p className="text-xs text-slate-300 leading-relaxed max-w-2xl">
+            <p className="text-xs text-slate-300 leading-relaxed w-full max-w-none">
               {status.status === 'tables_missing'
                 ? 'Your Supabase project is connected, but the database tables (job_roles, sessions, answers) have not been created yet in Supabase. Run the quick SQL script below to activate permanent cloud storage.'
                 : status.status === 'bucket_missing'

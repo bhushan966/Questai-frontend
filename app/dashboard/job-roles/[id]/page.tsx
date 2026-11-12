@@ -751,7 +751,7 @@ ${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powere
               </div>
             )}
 
-            <p className="text-sm text-slate-300 leading-relaxed max-w-3xl">
+            <p className="text-sm text-slate-300 leading-relaxed w-full whitespace-pre-line">
               {role.description}
             </p>
 
@@ -1117,7 +1117,7 @@ ${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powere
                 <Users className="w-6 h-6" />
               </div>
               <div className="text-sm font-semibold text-white">No candidate sessions found</div>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
                 {searchQuery || statusFilter !== 'all'
                   ? 'No candidates match your current search or filter query.'
                   : 'Generate and send an interview link above to start screening candidates.'}

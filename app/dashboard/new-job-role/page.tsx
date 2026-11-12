@@ -189,7 +189,7 @@ export default function NewJobRolePage() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <DashboardNav activeTab="new-role" />
 
-      <main className="flex-1 max-w-2xl w-full mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         <Link
           href="/dashboard"
           className="inline-flex items-center gap-2 text-xs sm:text-sm text-slate-400 hover:text-slate-200 transition-colors"
