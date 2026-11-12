@@ -12,7 +12,6 @@ import {
   CheckCheck,
   Mail,
   ArrowRight,
-  Send,
   ChevronDown,
   Building2,
 } from 'lucide-react';
@@ -45,7 +44,6 @@ export function DashboardNav({ activeTab = 'roles' }: { activeTab?: 'roles' | 'n
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [testAlertSent, setTestAlertSent] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -89,10 +87,14 @@ export function DashboardNav({ activeTab = 'roles' }: { activeTab?: 'roles' | 'n
       } catch {}
     }
 
-    // Combine and deduplicate by session_id
+    // Combine, purge any test alerts, and deduplicate by session_id
     const map = new Map<string, NotificationItem>();
     [...localNotifs, ...serverNotifs].forEach((n) => {
-      if (n && n.session_id && !map.has(n.session_id)) {
+      const isTestAlert =
+        n?.session_id?.startsWith('sess-test-') ||
+        n?.id?.startsWith('notif-test-') ||
+        n?.candidate_name === 'Alex Rivera';
+      if (n && n.session_id && !isTestAlert && !map.has(n.session_id)) {
         map.set(n.session_id, n);
       }
     });
@@ -102,6 +104,11 @@ export function DashboardNav({ activeTab = 'roles' }: { activeTab?: 'roles' | 'n
     );
 
     setNotifications(list);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('questai_notifications', JSON.stringify(list));
+      } catch {}
+    }
   };
 
   useEffect(() => {
@@ -143,36 +150,6 @@ export function DashboardNav({ activeTab = 'roles' }: { activeTab?: 'roles' | 'n
         body: JSON.stringify({ markAllRead: true }),
       });
     } catch {}
-  };
-
-  const handleSendTestAlert = async () => {
-    const testNotif: NotificationItem = {
-      id: `notif-test-${Date.now()}`,
-      session_id: `sess-test-${Date.now().toString(36)}`,
-      candidate_name: 'Alex Rivera',
-      job_role_id: 'role-fe-1',
-      job_role_title: 'Senior Frontend Engineer',
-      company_name: companyName || 'QuestAI Inc',
-      submitted_at: new Date().toISOString(),
-      read: false,
-    };
-
-    const updated = [testNotif, ...notifications];
-    setNotifications(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('questai_notifications', JSON.stringify(updated));
-    }
-
-    try {
-      await fetch('/api/notifications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(testNotif),
-      });
-    } catch {}
-
-    setTestAlertSent(true);
-    setTimeout(() => setTestAlertSent(false), 3000);
   };
 
   const getEmailAlertUrl = (notif: NotificationItem) => {
@@ -372,20 +349,17 @@ QuestAI Submission Alert System`;
                   )}
                 </div>
 
-                {/* Popover Footer with Simulator */}
-                <div className="px-4 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
-                  <button
-                    onClick={handleSendTestAlert}
-                    className="text-[11px] font-medium text-slate-400 hover:text-white transition-colors flex items-center gap-1"
-                  >
-                    <Send className="w-3 h-3 text-blue-400" />
-                    <span>{testAlertSent ? 'Alert Dispatched!' : 'Simulate Test Alert'}</span>
-                  </button>
+                {/* Popover Footer */}
+                <div className="px-4 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="flex items-center gap-1.5 text-slate-500">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Live submission alerts</span>
+                  </span>
 
                   <Link
                     href="/dashboard"
                     onClick={() => setIsNotifOpen(false)}
-                    className="text-[11px] text-slate-400 hover:text-blue-400 transition-colors"
+                    className="text-slate-400 hover:text-blue-400 transition-colors font-medium"
                   >
                     View All Roles →
                   </Link>

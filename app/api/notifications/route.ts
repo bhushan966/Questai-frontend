@@ -9,8 +9,15 @@ export async function GET(request: Request) {
     mockStore.notifications = [];
   }
 
+  // Filter out any simulated test alerts
+  let list = mockStore.notifications.filter(
+    (n) =>
+      !n.session_id.startsWith('sess-test-') &&
+      !n.id.startsWith('notif-test-') &&
+      n.candidate_name !== 'Alex Rivera'
+  );
+
   // Filter if recruiterId is supplied
-  let list = mockStore.notifications;
   if (recruiterId) {
     list = list.filter(
       (n) => !n.recruiter_id || n.recruiter_id === recruiterId
