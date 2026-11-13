@@ -33,6 +33,8 @@ import {
   Mail,
   Calendar,
   Loader2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface JobRole {
@@ -103,6 +105,7 @@ export default function JobRoleSessionsPage() {
   const [isBatchInviteOpen, setIsBatchInviteOpen] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [duplicateSuccess, setDuplicateSuccess] = useState<string | null>(null);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
   // Candidate Submission Deletion state
   const [sessionToDelete, setSessionToDelete] = useState<SessionSummary | null>(null);
@@ -751,9 +754,35 @@ ${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powere
               </div>
             )}
 
-            <p className="text-sm text-slate-300 leading-relaxed w-full whitespace-pre-line">
-              {role.description}
-            </p>
+            {(() => {
+              const desc = role.description || '';
+              const isLongDescription = desc.length > 280 || desc.split('\n').length > 4;
+              return (
+                <div className="space-y-1.5">
+                  <p
+                    className={`text-sm text-slate-300 leading-relaxed w-full whitespace-pre-line ${
+                      isLongDescription && !isDescriptionExpanded ? 'line-clamp-4' : ''
+                    }`}
+                  >
+                    {desc}
+                  </p>
+                  {isLongDescription && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDescriptionExpanded((prev) => !prev)}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+                    >
+                      <span>{isDescriptionExpanded ? 'Show less' : 'Show full description'}</span>
+                      {isDescriptionExpanded ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             {role.skills_required && (
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -768,31 +797,44 @@ ${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powere
                 ))}
               </div>
             )}
+          </div>
+        )}
 
-            {/* Quick Link Generators */}
-            <div id="generate-link" className="pt-5 border-t border-slate-800/80 space-y-3.5 scroll-mt-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-blue-400" />
-                  <span className="text-xs font-bold uppercase tracking-wider text-white">
-                    Generate Candidate Interview Link
-                  </span>
+        {/* Dedicated Candidate Invitation & Link Studio Card */}
+        {role && (
+          <div
+            id="generate-link"
+            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm scroll-mt-6"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                  <Link2 className="w-4 h-4" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 hidden sm:inline">
-                    Inviting multiple candidates?
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsBatchInviteOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer"
-                    title="Batch invite multiple candidates at once"
-                  >
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Batch Invite</span>
-                  </button>
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-white">
+                    Generate Candidate Interview Link
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Create a personalized screening link or invite multiple candidates in bulk.
+                  </p>
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 hidden sm:inline">
+                  Inviting multiple candidates?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsBatchInviteOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+                  title="Batch invite multiple candidates at once"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>Batch Invite</span>
+                </button>
+              </div>
+            </div>
 
               {/* Optional candidate name & email */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -933,7 +975,6 @@ ${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powere
                   <span>{generating ? 'Creating Link...' : '+ Conversational AI Link'}</span>
                 </button>
               </div>
-            </div>
           </div>
         )}
 
