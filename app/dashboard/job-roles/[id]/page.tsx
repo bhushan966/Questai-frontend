@@ -804,177 +804,193 @@ ${companyNameDisp ? `${companyNameDisp} Hiring Team` : 'Hiring Team'} • Powere
         {role && (
           <div
             id="generate-link"
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-7 space-y-4 shadow-sm scroll-mt-6"
+            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-7 space-y-5 shadow-sm scroll-mt-6"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
-                  <Link2 className="w-4 h-4" />
+            {/* Card Header */}
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                <Link2 className="w-4 h-4" />
+              </div>
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-wider text-white">
+                  Generate Candidate Interview Link
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Create a personalized screening link or invite multiple candidates in bulk.
+                </p>
+              </div>
+            </div>
+
+            {/* Two-Column Split: Stacked Single Invite (Left) + Dedicated Batch Invite Column (Right) */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Left Column: Stacked Name, Email, Expiry, and Link Mode Buttons */}
+              <div className="lg:col-span-7 xl:col-span-8 flex flex-col justify-between space-y-4">
+                {/* Stacked Candidate Name & Email */}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <User className="w-3.5 h-3.5 text-slate-500 absolute left-3.5 top-3" />
+                    <input
+                      type="text"
+                      value={candidateName}
+                      onChange={(e) => setCandidateName(e.target.value)}
+                      placeholder="Candidate name or referral tag (optional)..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-3.5 top-3" />
+                    <input
+                      type="email"
+                      value={candidateEmail}
+                      onChange={(e) => setCandidateEmail(e.target.value)}
+                      placeholder="Candidate email for Gmail dispatch (optional)..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-white">
-                    Generate Candidate Interview Link
-                  </h2>
-                  <p className="text-xs text-slate-400">
-                    Create a personalized screening link or invite multiple candidates in bulk.
-                  </p>
+
+                {/* Expiry Deadline & Custom Date-Time Selector */}
+                <div className="space-y-2.5 text-xs pt-0.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                    <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                      <span>Interview Expiry Date & Time:</span>
+                    </span>
+
+                    {expiryPreset !== 'none' && customExpiryDateTime ? (
+                      <span className="text-slate-400 text-[11px]">
+                        Expires:{' '}
+                        <strong className="text-amber-300 font-medium">
+                          {new Date(customExpiryDateTime).toLocaleDateString(undefined, {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </strong>
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 text-[11px]">No expiration deadline</span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Interactive Date & Time Picker */}
+                    <div className="relative inline-flex items-center">
+                      <button
+                        type="button"
+                        disabled={expiryPreset === 'none'}
+                        onClick={() => {
+                          try {
+                            datetimeInputRef.current?.showPicker();
+                          } catch {
+                            datetimeInputRef.current?.focus();
+                          }
+                        }}
+                        className="absolute left-2.5 z-10 text-blue-400 hover:text-blue-300 disabled:text-slate-600 disabled:opacity-40 transition-colors pointer-events-auto"
+                        title="Click to open calendar"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                      </button>
+                      <input
+                        ref={datetimeInputRef}
+                        type="datetime-local"
+                        style={{ colorScheme: 'dark' }}
+                        value={expiryPreset === 'none' ? '' : customExpiryDateTime}
+                        disabled={expiryPreset === 'none'}
+                        onChange={(e) => handleCustomDateTimeChange(e.target.value)}
+                        min={toDateTimeLocalString(new Date())}
+                        className={`bg-slate-950 border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none transition-colors [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-90 hover:[&::-webkit-calendar-picker-indicator]:opacity-100 ${
+                          expiryPreset === 'none'
+                            ? 'border-slate-800 text-slate-600 opacity-40 cursor-not-allowed'
+                            : 'border-slate-700 text-slate-100 hover:border-slate-600 focus:border-blue-500'
+                        }`}
+                        title="Select exact deadline date and time"
+                      />
+                    </div>
+
+                    {/* Quick Duration Presets */}
+                    {(
+                      [
+                        { id: '48h', label: '48h (Default)' },
+                        { id: '24h', label: '24h' },
+                        { id: '3d', label: '3 Days' },
+                        { id: '7d', label: '7 Days' },
+                        { id: 'none', label: 'No Expiry' },
+                      ] as const
+                    ).map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleSelectPreset(preset.id)}
+                        className={`px-2.5 py-1.5 rounded-lg font-medium text-xs transition-colors border ${
+                          expiryPreset === preset.id
+                            ? 'bg-blue-600/20 border-blue-500 text-blue-300'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Interview Link Mode Buttons */}
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <button
+                    onClick={() => handleGenerateLink('ai')}
+                    disabled={generating}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01] cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{generating ? 'Creating Link...' : '+ AI Interview Link'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleGenerateLink('manual')}
+                    disabled={generating}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01] cursor-pointer"
+                  >
+                    <ListPlus className="w-3.5 h-3.5" />
+                    <span>{generating ? 'Creating Link...' : '+ Custom Questions Link'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleGenerateLink('conversational')}
+                    disabled={generating}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01] cursor-pointer"
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>{generating ? 'Creating Link...' : '+ Conversational AI Link'}</span>
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 hidden sm:inline">
-                  Inviting multiple candidates?
-                </span>
+
+              {/* Right Column: Full-Height Dedicated Batch Invite Box */}
+              <div className="lg:col-span-5 xl:col-span-4 bg-slate-950/75 border border-slate-800/90 rounded-2xl p-6 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/25">
+                  <Users className="w-6 h-6" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-white leading-snug">
+                    Inviting Multiple Candidates?
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed max-w-[260px] mx-auto">
+                    Generate unique screening links for dozens of candidates at once via CSV or email list.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setIsBatchInviteOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-500/20 transition-all cursor-pointer"
+                  className="w-full max-w-[260px] inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full text-xs sm:text-sm font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-500/25 transition-all cursor-pointer"
                   title="Batch invite multiple candidates at once"
                 >
-                  <Users className="w-3.5 h-3.5" />
+                  <Users className="w-4 h-4" />
                   <span>Batch Invite</span>
                 </button>
               </div>
             </div>
-
-              {/* Optional candidate name & email */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div className="relative">
-                  <User className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={candidateName}
-                    onChange={(e) => setCandidateName(e.target.value)}
-                    placeholder="Candidate name or referral tag (optional)..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-                  />
-                </div>
-                <div className="relative">
-                  <Mail className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="email"
-                    value={candidateEmail}
-                    onChange={(e) => setCandidateEmail(e.target.value)}
-                    placeholder="Candidate email for Gmail dispatch (optional)..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 transition-colors"
-                  />
-                </div>
-              </div>
-
-              {/* Expiry Deadline & Custom Date-Time Selector */}
-              <div className="space-y-2 pt-1 text-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                  <span className="text-slate-300 font-semibold flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Interview Expiry Date & Time:</span>
-                  </span>
-
-                  {expiryPreset !== 'none' && customExpiryDateTime ? (
-                    <span className="text-slate-400 text-[11px]">
-                      Expires:{' '}
-                      <strong className="text-amber-300 font-medium">
-                        {new Date(customExpiryDateTime).toLocaleDateString(undefined, {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </strong>
-                    </span>
-                  ) : (
-                    <span className="text-slate-500 text-[11px]">No expiration deadline</span>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Interactive Date & Time Picker */}
-                  <div className="relative inline-flex items-center">
-                    <button
-                      type="button"
-                      disabled={expiryPreset === 'none'}
-                      onClick={() => {
-                        try {
-                          datetimeInputRef.current?.showPicker();
-                        } catch {
-                          datetimeInputRef.current?.focus();
-                        }
-                      }}
-                      className="absolute left-2.5 z-10 text-blue-400 hover:text-blue-300 disabled:text-slate-600 disabled:opacity-40 transition-colors pointer-events-auto"
-                      title="Click to open calendar"
-                    >
-                      <Calendar className="w-3.5 h-3.5" />
-                    </button>
-                    <input
-                      ref={datetimeInputRef}
-                      type="datetime-local"
-                      style={{ colorScheme: 'dark' }}
-                      value={expiryPreset === 'none' ? '' : customExpiryDateTime}
-                      disabled={expiryPreset === 'none'}
-                      onChange={(e) => handleCustomDateTimeChange(e.target.value)}
-                      min={toDateTimeLocalString(new Date())}
-                      className={`bg-slate-950 border rounded-xl pl-8 pr-3 py-1.5 text-xs focus:outline-none transition-colors [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-90 hover:[&::-webkit-calendar-picker-indicator]:opacity-100 ${
-                        expiryPreset === 'none'
-                          ? 'border-slate-800 text-slate-600 opacity-40 cursor-not-allowed'
-                          : 'border-slate-700 text-slate-100 hover:border-slate-600 focus:border-blue-500'
-                      }`}
-                      title="Select exact deadline date and time"
-                    />
-                  </div>
-
-                  {/* Quick Duration Presets */}
-                  {(
-                    [
-                      { id: '48h', label: '48h (Default)' },
-                      { id: '24h', label: '24h' },
-                      { id: '3d', label: '3 Days' },
-                      { id: '7d', label: '7 Days' },
-                      { id: 'none', label: 'No Expiry' },
-                    ] as const
-                  ).map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => handleSelectPreset(preset.id)}
-                      className={`px-2.5 py-1.5 rounded-lg font-medium text-xs transition-colors border ${
-                        expiryPreset === preset.id
-                          ? 'bg-blue-600/20 border-blue-500 text-blue-300'
-                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                <button
-                  onClick={() => handleGenerateLink('ai')}
-                  disabled={generating}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{generating ? 'Creating Link...' : '+ AI Interview Link'}</span>
-                </button>
-
-                <button
-                  onClick={() => handleGenerateLink('manual')}
-                  disabled={generating}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
-                >
-                  <ListPlus className="w-3.5 h-3.5" />
-                  <span>{generating ? 'Creating Link...' : '+ Custom Questions Link'}</span>
-                </button>
-
-                <button
-                  onClick={() => handleGenerateLink('conversational')}
-                  disabled={generating}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow-sm transition-all hover:scale-[1.01]"
-                >
-                  <Bot className="w-3.5 h-3.5" />
-                  <span>{generating ? 'Creating Link...' : '+ Conversational AI Link'}</span>
-                </button>
-              </div>
           </div>
         )}
 
