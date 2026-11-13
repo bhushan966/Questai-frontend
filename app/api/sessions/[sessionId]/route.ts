@@ -1,14 +1,18 @@
 import { NextResponse } from 'next/server';
-import { mockStore, persistMockStore } from '@/lib/mockStore';
+import { mockStore, persistMockStore, markSessionDeleted } from '@/lib/mockStore';
 import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   props: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await props.params;
 
-  const supabase = getSupabaseServerClient();
+  if (mockStore.deletedSessionIds?.includes(sessionId)) {
+    return NextResponse.json({ detail: 'Session not found' }, { status: 404 });
+  }
+
+  const supabase = getSupabaseServerClient(request);
   if (supabase && isUUID(sessionId)) {
     try {
       const { data, error } = await supabase
@@ -80,7 +84,7 @@ export async function PATCH(
       if (session) session.verdict = body.verdict;
     }
 
-    const supabase = getSupabaseServerClient();
+    const supabase = getSupabaseServerClient(request);
     if (supabase && isUUID(sessionId) && Object.keys(updates).length > 0) {
       try {
         await supabase.from('sessions').update(updates).eq('id', sessionId);
@@ -101,13 +105,13 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   props: { params: Promise<{ sessionId: string }> }
 ) {
   const { sessionId } = await props.params;
 
   // 1. Delete from Supabase Database if configured and ID is valid UUID
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseServerClient(request);
   if (supabase && isUUID(sessionId)) {
     try {
       try {
@@ -127,15 +131,8 @@ export async function DELETE(
     }
   }
 
-  // 2. Remove from local in-memory store
-  const sIdx = mockStore.sessions.findIndex((s) => s.id === sessionId);
-  if (sIdx !== -1) {
-    mockStore.sessions.splice(sIdx, 1);
-  }
-  mockStore.answers = mockStore.answers.filter((a) => a.session_id !== sessionId);
-  mockStore.turns = mockStore.turns.filter((t) => t.session_id !== sessionId);
-
-  persistMockStore();
+  // 2. Remove from local in-memory store and record permanent tombstone
+  markSessionDeleted(sessionId);
 
   return NextResponse.json({ success: true, id: sessionId });
 }

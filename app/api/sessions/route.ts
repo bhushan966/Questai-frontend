@@ -29,8 +29,10 @@ function cleanDuplicateSessions(sessions: Session[]): Session[] {
 }
 
 export async function GET(request: Request) {
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseServerClient(request);
   const userId = await getAuthUserId(request);
+  const deletedSessionSet = new Set(mockStore.deletedSessionIds || []);
+  const deletedRoleSet = new Set(mockStore.deletedRoleIds || []);
 
   if (supabase) {
     try {
@@ -46,8 +48,19 @@ export async function GET(request: Request) {
       const { data, error } = await query;
 
       if (!error && Array.isArray(data)) {
-        // Merge with local mockStore
-        const merged = cleanDuplicateSessions([...data, ...mockStore.sessions]);
+        // Filter out any tombstoned sessions or sessions belonging to deleted roles
+        const activeSupabaseSessions = data.filter(
+          (s: any) => s && !deletedSessionSet.has(s.id) && !deletedRoleSet.has(s.job_role_id)
+        );
+        // Only retain non-UUID local/demo fallback sessions from mockStore; never resurrect deleted UUID rows from stale instances
+        const localOnlySessions = mockStore.sessions.filter(
+          (s) =>
+            s &&
+            !deletedSessionSet.has(s.id) &&
+            !deletedRoleSet.has(s.job_role_id) &&
+            (!isUUID(s.id) || !isUUID(s.job_role_id))
+        );
+        const merged = cleanDuplicateSessions([...activeSupabaseSessions, ...localOnlySessions]);
         mockStore.sessions = merged;
         return NextResponse.json(merged);
       }
@@ -56,12 +69,15 @@ export async function GET(request: Request) {
     }
   }
 
-  const cleaned = cleanDuplicateSessions(mockStore.sessions);
+  const activeMockSessions = mockStore.sessions.filter(
+    (s) => s && !deletedSessionSet.has(s.id) && !deletedRoleSet.has(s.job_role_id)
+  );
+  const cleaned = cleanDuplicateSessions(activeMockSessions);
   if (cleaned.length !== mockStore.sessions.length) {
     mockStore.sessions = cleaned;
     persistMockStore();
   }
-  return NextResponse.json(mockStore.sessions);
+  return NextResponse.json(cleaned);
 }
 
 export async function POST(request: Request) {
@@ -122,7 +138,7 @@ export async function POST(request: Request) {
     (newSession as any).skills_required = skills_required;
 
     // Persist session to Supabase if valid UUID
-    const supabase = getSupabaseServerClient();
+    const supabase = getSupabaseServerClient(request);
     if (supabase && isUUID(newSession.id) && isUUID(newSession.job_role_id)) {
       try {
         await supabase.from('sessions').upsert([

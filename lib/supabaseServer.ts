@@ -1,16 +1,27 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-export function getSupabaseServerClient(): SupabaseClient | null {
+export function getSupabaseServerClient(request?: Request): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key =
+  const serviceKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY;
+  const anonKey =
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.SUPABASE_ANON_KEY ||
     process.env.SUPABASE_KEY;
 
+  const key = serviceKey || anonKey;
+
   if (!url || !key || url.includes('placeholder') || url === 'undefined') {
     return null;
+  }
+
+  const globalHeaders: Record<string, string> = {};
+  if (!serviceKey && request) {
+    const authHeader = request.headers.get('authorization');
+    if (authHeader && authHeader.startsWith('Bearer ') && !authHeader.includes('mock-')) {
+      globalHeaders['Authorization'] = authHeader;
+    }
   }
 
   try {
@@ -19,6 +30,7 @@ export function getSupabaseServerClient(): SupabaseClient | null {
         persistSession: false,
         autoRefreshToken: false,
       },
+      ...(Object.keys(globalHeaders).length > 0 ? { global: { headers: globalHeaders } } : {}),
     });
   } catch (err) {
     console.warn('Failed to initialize server Supabase client:', err);

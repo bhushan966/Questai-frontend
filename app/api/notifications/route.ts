@@ -9,12 +9,17 @@ export async function GET(request: Request) {
     mockStore.notifications = [];
   }
 
-  // Filter out any simulated test alerts
+  const deletedSessionSet = new Set(mockStore.deletedSessionIds || []);
+  const deletedRoleSet = new Set(mockStore.deletedRoleIds || []);
+
+  // Filter out any simulated test alerts or notifications for deleted sessions/roles
   let list = mockStore.notifications.filter(
     (n) =>
       !n.session_id.startsWith('sess-test-') &&
       !n.id.startsWith('notif-test-') &&
-      n.candidate_name !== 'Alex Rivera'
+      n.candidate_name !== 'Alex Rivera' &&
+      !deletedSessionSet.has(n.session_id) &&
+      !deletedRoleSet.has(n.job_role_id)
   );
 
   // Filter if recruiterId is supplied

@@ -1,25 +1,64 @@
 import { NextResponse } from 'next/server';
-import { mockStore, persistMockStore } from '@/lib/mockStore';
+import { mockStore, persistMockStore, Session } from '@/lib/mockStore';
+import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
+  const deletedSessionSet = new Set(mockStore.deletedSessionIds || []);
+  const deletedRoleSet = new Set(mockStore.deletedRoleIds || []);
 
-  // Filter sessions for this role
-  const rawSessions = mockStore.sessions
-    .filter((s) => s.job_role_id === id)
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  if (deletedRoleSet.has(id)) {
+    return NextResponse.json([]);
+  }
+
+  let sourceSessions: Session[] = [];
+  const supabase = getSupabaseServerClient(request);
+
+  if (supabase && isUUID(id)) {
+    try {
+      const { data, error } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('job_role_id', id)
+        .order('created_at', { ascending: false });
+
+      if (!error && Array.isArray(data)) {
+        sourceSessions = data.filter((s: any) => s && !deletedSessionSet.has(s.id));
+      } else {
+        sourceSessions = mockStore.sessions.filter(
+          (s) => s.job_role_id === id && !deletedSessionSet.has(s.id)
+        );
+      }
+    } catch {
+      sourceSessions = mockStore.sessions.filter(
+        (s) => s.job_role_id === id && !deletedSessionSet.has(s.id)
+      );
+    }
+  } else {
+    sourceSessions = mockStore.sessions.filter(
+      (s) => s.job_role_id === id && !deletedSessionSet.has(s.id)
+    );
+  }
+
+  // Sort newest first
+  const rawSessions = [...sourceSessions].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
   // Deduplicate: if duplicate sessions were generated for the same candidate, prioritize the submitted session with videos
-  const seenMap = new Map<string, typeof rawSessions[0]>();
-  const deduplicated: typeof rawSessions = [];
+  const seenMap = new Map<string, Session>();
+  const deduplicated: Session[] = [];
 
   for (const s of rawSessions) {
-    const key = (s.candidate_name && s.candidate_name !== 'Candidate' && !s.candidate_name.startsWith('Candidate cand-'))
-      ? `name_${s.candidate_name.trim().toLowerCase()}`
-      : `id_${s.candidate_id || s.id}`;
+    const key =
+      s.candidate_name &&
+      s.candidate_name !== 'Candidate' &&
+      !s.candidate_name.startsWith('Candidate cand-')
+        ? `name_${s.candidate_name.trim().toLowerCase()}`
+        : `id_${s.candidate_id || s.id}`;
 
     const existing = seenMap.get(key);
     if (!existing) {
@@ -39,8 +78,10 @@ export async function GET(
 
   // Also purge orphaned duplicates from mockStore so the database stays clean
   if (deduplicated.length < rawSessions.length) {
-    const removedIds = new Set(rawSessions.filter(s => !deduplicated.includes(s)).map(s => s.id));
-    mockStore.sessions = mockStore.sessions.filter(s => !removedIds.has(s.id));
+    const removedIds = new Set(
+      rawSessions.filter((s) => !deduplicated.includes(s)).map((s) => s.id)
+    );
+    mockStore.sessions = mockStore.sessions.filter((s) => !removedIds.has(s.id));
     persistMockStore();
   }
 

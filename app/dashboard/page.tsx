@@ -81,6 +81,7 @@ export default function DashboardPage() {
       // 1. Instantly read locally saved roles, sessions, and deleted tombstones
       let localRoles: JobRole[] = [];
       let deletedRoleIds: string[] = [];
+      let deletedSessionIds: string[] = [];
       let localSavedSessions: SessionSummary[] = [];
       let submittedMap: Record<string, boolean> = {};
       let evaluationsMap: Record<string, any> = {};
@@ -90,6 +91,14 @@ export default function DashboardPage() {
           const deletedStored = localStorage.getItem('questai_deleted_roles');
           if (deletedStored) deletedRoleIds = JSON.parse(deletedStored);
 
+          const deletedSessionsStored = localStorage.getItem('questai_deleted_sessions');
+          if (deletedSessionsStored) deletedSessionIds = JSON.parse(deletedSessionsStored);
+        } catch {}
+      }
+      const deletedSessionSet = new Set<string>(deletedSessionIds);
+
+      if (typeof window !== 'undefined') {
+        try {
           const userKey = user?.id ? `questai_saved_roles_${user.id}` : null;
           const userStored = userKey ? localStorage.getItem(userKey) : null;
           const stored = userStored || localStorage.getItem('questai_saved_roles');
@@ -117,7 +126,8 @@ export default function DashboardPage() {
             const parsedSessions = JSON.parse(savedSessionsStored);
             if (Array.isArray(parsedSessions)) {
               localSavedSessions = parsedSessions.filter((s: any) => {
-                if (!s || !s.job_role_id) return true;
+                if (!s || !s.id || deletedSessionSet.has(s.id)) return false;
+                if (!s.job_role_id) return true;
                 const sessRoleId = String(s.job_role_id).toLowerCase().trim();
                 return !deletedSet.has(sessRoleId) && !deletedSet.has(sessRoleId.replace(/^role-/, ''));
               });
@@ -131,9 +141,10 @@ export default function DashboardPage() {
           if (localSavedSessions.length > 0 || Object.keys(evaluationsMap).length > 0) {
             const instantSessionsMap = new Map<string, SessionSummary>();
             localSavedSessions.forEach((s) => {
-              if (s && s.id) instantSessionsMap.set(s.id, { ...s });
+              if (s && s.id && !deletedSessionSet.has(s.id)) instantSessionsMap.set(s.id, { ...s });
             });
             Object.keys(evaluationsMap).forEach((sessId) => {
+              if (deletedSessionSet.has(sessId)) return;
               const ev = evaluationsMap[sessId];
               if (ev?.job_role_id) {
                 const evRoleId = String(ev.job_role_id).toLowerCase().trim();
@@ -201,10 +212,12 @@ export default function DashboardPage() {
             if (res.ok) {
               const data = await res.json();
               if (Array.isArray(data)) {
-                return data.map((item: any) => ({
-                  ...item,
-                  job_role_id: item.job_role_id || role.id,
-                }));
+                return data
+                  .filter((item: any) => item && !deletedSessionSet.has(item.id))
+                  .map((item: any) => ({
+                    ...item,
+                    job_role_id: item.job_role_id || role.id,
+                  }));
               }
               return [];
             }
@@ -214,7 +227,7 @@ export default function DashboardPage() {
           return [];
         });
 
-        const internalSessionsPromise = fetch('/api/sessions')
+        const internalSessionsPromise = authedFetch('/api/sessions')
           .then((r) => (r.ok ? r.json() : []))
           .catch(() => []);
 
@@ -229,10 +242,10 @@ export default function DashboardPage() {
           ...localSavedSessions,
         ];
 
-        // Deduplicate sessions by session ID
+        // Deduplicate sessions by session ID (strictly excluding deleted sessions)
         const sessionsMap = new Map<string, SessionSummary>();
         allRawSessions.forEach((s) => {
-          if (s && s.id && !sessionsMap.has(s.id)) {
+          if (s && s.id && !deletedSessionSet.has(s.id) && !sessionsMap.has(s.id)) {
             sessionsMap.set(s.id, { ...s });
           }
         });
@@ -246,6 +259,7 @@ export default function DashboardPage() {
         });
 
         Object.keys(evaluationsMap).forEach((sessId) => {
+          if (deletedSessionSet.has(sessId)) return;
           const ev = evaluationsMap[sessId];
           if (ev?.job_role_id) {
             const evRoleId = String(ev.job_role_id).toLowerCase().trim();

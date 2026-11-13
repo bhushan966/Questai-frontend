@@ -3,7 +3,7 @@ import { mockStore, JobRole, persistMockStore } from '@/lib/mockStore';
 import { getSupabaseServerClient, isUUID, getAuthUserId } from '@/lib/supabaseServer';
 
 export async function GET(request: Request) {
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseServerClient(request);
   const userId = await getAuthUserId(request);
 
   if (supabase) {
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
     }
 
     // 1. Persist directly to Supabase Database if configured and valid UUID
-    const supabase = getSupabaseServerClient();
+    const supabase = getSupabaseServerClient(request);
     if (supabase && isUUID(newRole.id)) {
       try {
         const { error: sbErr } = await supabase

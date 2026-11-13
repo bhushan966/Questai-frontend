@@ -3,12 +3,12 @@ import { mockStore, markRoleDeleted, persistMockStore } from '@/lib/mockStore';
 import { getSupabaseServerClient, isUUID } from '@/lib/supabaseServer';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
 
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseServerClient(request);
   if (supabase && isUUID(id)) {
     try {
       const { data, error } = await supabase
@@ -80,7 +80,7 @@ export async function PATCH(
       if (role) role.company_name = updates.company_name;
     }
 
-    const supabase = getSupabaseServerClient();
+    const supabase = getSupabaseServerClient(request);
     if (supabase && isUUID(id) && Object.keys(updates).length > 0) {
       try {
         await supabase.from('job_roles').update(updates).eq('id', id);
@@ -108,13 +108,13 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   props: { params: Promise<{ id: string }> }
 ) {
   const { id } = await props.params;
 
   // 1. Delete from Supabase Database if valid UUID
-  const supabase = getSupabaseServerClient();
+  const supabase = getSupabaseServerClient(request);
   if (supabase && isUUID(id)) {
     try {
       try {

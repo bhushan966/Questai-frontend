@@ -85,6 +85,7 @@ declare global {
     turns: ConversationTurn[];
     notifications: SubmissionNotification[];
     deletedRoleIds: string[];
+    deletedSessionIds: string[];
   } | undefined;
 }
 
@@ -265,6 +266,7 @@ if (!globalThis.__questai_mock_data__) {
     turns: initialTurns,
     notifications: [] as SubmissionNotification[],
     deletedRoleIds: [] as string[],
+    deletedSessionIds: [] as string[],
   };
 
   try {
@@ -272,18 +274,24 @@ if (!globalThis.__questai_mock_data__) {
     if (fs.existsSync(DATA_FILE)) {
       const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
       const savedDeleted: string[] = Array.isArray(saved.deletedRoleIds) ? saved.deletedRoleIds : [];
+      const savedDeletedSessions: string[] = Array.isArray(saved.deletedSessionIds) ? saved.deletedSessionIds : [];
       const savedRoles: JobRole[] = Array.isArray(saved.jobRoles) ? saved.jobRoles : initialStore.jobRoles;
-      // Filter out any roles that were deleted
+      const savedSessions: Session[] = Array.isArray(saved.sessions) ? saved.sessions : initialStore.sessions;
+      // Filter out any roles and sessions that were deleted
       const activeRoles = savedRoles.filter((r) => !savedDeleted.includes(r.id));
+      const activeSessions = savedSessions.filter(
+        (s) => !savedDeleted.includes(s.job_role_id) && !savedDeletedSessions.includes(s.id)
+      );
 
       globalThis.__questai_mock_data__ = {
         jobRoles: activeRoles,
         questions: Array.isArray(saved.questions) ? saved.questions : initialStore.questions,
-        sessions: Array.isArray(saved.sessions) ? saved.sessions : initialStore.sessions,
+        sessions: activeSessions,
         answers: Array.isArray(saved.answers) ? saved.answers : initialStore.answers,
         turns: Array.isArray(saved.turns) ? saved.turns : initialStore.turns,
         notifications: Array.isArray(saved.notifications) ? saved.notifications : [],
         deletedRoleIds: savedDeleted,
+        deletedSessionIds: savedDeletedSessions,
       };
     } else {
       globalThis.__questai_mock_data__ = initialStore;
@@ -312,6 +320,31 @@ export function markRoleDeleted(roleId: string) {
   globalThis.__questai_mock_data__.jobRoles = globalThis.__questai_mock_data__.jobRoles.filter(
     (r) => r.id !== roleId
   );
+  persistMockStore();
+}
+
+export function markSessionDeleted(sessionId: string) {
+  if (!globalThis.__questai_mock_data__) return;
+  if (!Array.isArray(globalThis.__questai_mock_data__.deletedSessionIds)) {
+    globalThis.__questai_mock_data__.deletedSessionIds = [];
+  }
+  if (!globalThis.__questai_mock_data__.deletedSessionIds.includes(sessionId)) {
+    globalThis.__questai_mock_data__.deletedSessionIds.push(sessionId);
+  }
+  globalThis.__questai_mock_data__.sessions = globalThis.__questai_mock_data__.sessions.filter(
+    (s) => s.id !== sessionId
+  );
+  globalThis.__questai_mock_data__.answers = globalThis.__questai_mock_data__.answers.filter(
+    (a) => a.session_id !== sessionId
+  );
+  globalThis.__questai_mock_data__.turns = globalThis.__questai_mock_data__.turns.filter(
+    (t) => t.session_id !== sessionId
+  );
+  if (Array.isArray(globalThis.__questai_mock_data__.notifications)) {
+    globalThis.__questai_mock_data__.notifications = globalThis.__questai_mock_data__.notifications.filter(
+      (n) => n.session_id !== sessionId
+    );
+  }
   persistMockStore();
 }
 

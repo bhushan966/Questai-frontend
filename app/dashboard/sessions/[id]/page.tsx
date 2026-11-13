@@ -98,6 +98,13 @@ export default function SessionDetailPage() {
 
       if (typeof window !== 'undefined') {
         try {
+          const deletedStored = localStorage.getItem('questai_deleted_sessions');
+          const deletedList: string[] = deletedStored ? JSON.parse(deletedStored) : [];
+          if (!deletedList.includes(id)) {
+            deletedList.push(id);
+            localStorage.setItem('questai_deleted_sessions', JSON.stringify(deletedList));
+          }
+
           const stored = localStorage.getItem('questai_saved_sessions');
           if (stored) {
             const list = JSON.parse(stored);
@@ -109,6 +116,14 @@ export default function SessionDetailPage() {
           delete candMap[id];
           localStorage.setItem('questai_candidate_names', JSON.stringify(candMap));
 
+          const emailMap = JSON.parse(localStorage.getItem('questai_candidate_emails') || '{}');
+          delete emailMap[id];
+          localStorage.setItem('questai_candidate_emails', JSON.stringify(emailMap));
+
+          const deadMap = JSON.parse(localStorage.getItem('questai_session_deadlines') || '{}');
+          delete deadMap[id];
+          localStorage.setItem('questai_session_deadlines', JSON.stringify(deadMap));
+
           const subMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
           delete subMap[id];
           localStorage.setItem('questai_submitted_sessions', JSON.stringify(subMap));
@@ -116,6 +131,17 @@ export default function SessionDetailPage() {
           const evalMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
           delete evalMap[id];
           localStorage.setItem('questai_session_evaluations', JSON.stringify(evalMap));
+
+          const notifStored = localStorage.getItem('questai_notifications');
+          if (notifStored) {
+            const notifs = JSON.parse(notifStored);
+            if (Array.isArray(notifs)) {
+              localStorage.setItem(
+                'questai_notifications',
+                JSON.stringify(notifs.filter((n: any) => n?.session_id !== id))
+              );
+            }
+          }
         } catch {}
       }
 

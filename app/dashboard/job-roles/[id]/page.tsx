@@ -115,41 +115,65 @@ export default function JobRoleSessionsPage() {
   const handleDeleteSessionConfirm = async () => {
     if (!sessionToDelete) return;
     setDeletingSession(true);
+    const targetId = sessionToDelete.id;
 
     try {
-      // 1. Call API
-      let res: Response | null = null;
+      // 1. Delete from external backend (if configured) AND internal Next.js/Supabase API
       if (API_URL !== '/api') {
-        res = await authedFetch(`${API_URL}/sessions/${sessionToDelete.id}`, { method: 'DELETE' }).catch(() => null);
+        await authedFetch(`${API_URL}/sessions/${targetId}`, { method: 'DELETE' }).catch(() => null);
       }
-      if (!res || !res.ok) {
-        res = await authedFetch(`/api/sessions/${sessionToDelete.id}`, { method: 'DELETE' }).catch(() => null);
-      }
+      await authedFetch(`/api/sessions/${targetId}`, { method: 'DELETE' }).catch(() => null);
 
-      // 2. Remove from component state
-      setSessions((prev) => prev.filter((s) => s.id !== sessionToDelete.id));
+      // 2. Remove from component state immediately
+      setSessions((prev) => prev.filter((s) => s.id !== targetId));
 
-      // 3. Remove from localStorage saved records
+      // 3. Record permanent tombstone and purge from all localStorage caches
       if (typeof window !== 'undefined') {
         try {
+          const deletedStored = localStorage.getItem('questai_deleted_sessions');
+          const deletedList: string[] = deletedStored ? JSON.parse(deletedStored) : [];
+          if (!deletedList.includes(targetId)) {
+            deletedList.push(targetId);
+            localStorage.setItem('questai_deleted_sessions', JSON.stringify(deletedList));
+          }
+
           const stored = localStorage.getItem('questai_saved_sessions');
           if (stored) {
             const list = JSON.parse(stored);
-            const filtered = list.filter((s: any) => s.id !== sessionToDelete.id);
+            const filtered = list.filter((s: any) => s.id !== targetId);
             localStorage.setItem('questai_saved_sessions', JSON.stringify(filtered));
           }
 
           const candMap = JSON.parse(localStorage.getItem('questai_candidate_names') || '{}');
-          delete candMap[sessionToDelete.id];
+          delete candMap[targetId];
           localStorage.setItem('questai_candidate_names', JSON.stringify(candMap));
 
+          const emailMap = JSON.parse(localStorage.getItem('questai_candidate_emails') || '{}');
+          delete emailMap[targetId];
+          localStorage.setItem('questai_candidate_emails', JSON.stringify(emailMap));
+
+          const deadMap = JSON.parse(localStorage.getItem('questai_session_deadlines') || '{}');
+          delete deadMap[targetId];
+          localStorage.setItem('questai_session_deadlines', JSON.stringify(deadMap));
+
           const subMap = JSON.parse(localStorage.getItem('questai_submitted_sessions') || '{}');
-          delete subMap[sessionToDelete.id];
+          delete subMap[targetId];
           localStorage.setItem('questai_submitted_sessions', JSON.stringify(subMap));
 
           const evalMap = JSON.parse(localStorage.getItem('questai_session_evaluations') || '{}');
-          delete evalMap[sessionToDelete.id];
+          delete evalMap[targetId];
           localStorage.setItem('questai_session_evaluations', JSON.stringify(evalMap));
+
+          const notifStored = localStorage.getItem('questai_notifications');
+          if (notifStored) {
+            const notifs = JSON.parse(notifStored);
+            if (Array.isArray(notifs)) {
+              localStorage.setItem(
+                'questai_notifications',
+                JSON.stringify(notifs.filter((n: any) => n?.session_id !== targetId))
+              );
+            }
+          }
         } catch {}
       }
 
@@ -169,6 +193,15 @@ export default function JobRoleSessionsPage() {
     let internalList: SessionSummary[] = [];
     let localSavedList: SessionSummary[] = [];
 
+    let deletedSessionIds: string[] = [];
+    if (typeof window !== 'undefined') {
+      try {
+        const deletedStored = localStorage.getItem('questai_deleted_sessions');
+        if (deletedStored) deletedSessionIds = JSON.parse(deletedStored);
+      } catch {}
+    }
+    const deletedSessionSet = new Set(deletedSessionIds);
+
     // 1. External Render API if configured
     try {
       const listUrl = API_URL.startsWith('http') ? `${API_URL}/job-roles/${roleId}/sessions` : `${API_URL}/job-roles/${roleId}/sessions`;
@@ -176,21 +209,25 @@ export default function JobRoleSessionsPage() {
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          externalList = data.map((item: any) => ({
-            ...item,
-            job_role_id: item.job_role_id || roleId,
-          }));
+          externalList = data
+            .filter((item: any) => item && !deletedSessionSet.has(item.id))
+            .map((item: any) => ({
+              ...item,
+              job_role_id: item.job_role_id || roleId,
+            }));
         }
       }
     } catch {}
 
     // 2. Internal /api/sessions (Next.js & Supabase)
     try {
-      const res = await fetch('/api/sessions');
+      const res = await authedFetch('/api/sessions');
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          internalList = data.filter((s: SessionSummary) => s.job_role_id === roleId);
+          internalList = data.filter(
+            (s: SessionSummary) => s && s.job_role_id === roleId && !deletedSessionSet.has(s.id)
+          );
         }
       }
     } catch {}
@@ -202,16 +239,18 @@ export default function JobRoleSessionsPage() {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
-            localSavedList = parsed.filter((s: SessionSummary) => s.job_role_id === roleId);
+            localSavedList = parsed.filter(
+              (s: SessionSummary) => s && s.job_role_id === roleId && !deletedSessionSet.has(s.id)
+            );
           }
         }
       } catch {}
     }
 
-    // Merge and deduplicate by session id
+    // Merge and deduplicate by session id (strictly excluding deleted sessions)
     const sessionsMap = new Map<string, SessionSummary>();
     [...externalList, ...internalList, ...localSavedList].forEach((s) => {
-      if (s && s.id && !sessionsMap.has(s.id)) {
+      if (s && s.id && !deletedSessionSet.has(s.id) && !sessionsMap.has(s.id)) {
         sessionsMap.set(s.id, s);
       }
     });
@@ -230,6 +269,7 @@ export default function JobRoleSessionsPage() {
 
     // Ensure locally evaluated sessions for this role are accounted for
     Object.keys(evaluationsMap).forEach((sessId) => {
+      if (deletedSessionSet.has(sessId)) return;
       const ev = evaluationsMap[sessId];
       if (ev.job_role_id === roleId) {
         const existing = sessionsMap.get(sessId);
@@ -422,7 +462,7 @@ export default function JobRoleSessionsPage() {
 
       // Guaranteed fallback to internal Next.js API route if external backend failed or was unreachable
       if (!res || !res.ok) {
-        res = await fetch(`/api/sessions`, {
+        res = await authedFetch(`/api/sessions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -438,7 +478,7 @@ export default function JobRoleSessionsPage() {
 
       // If created on external API, ensure same session ID is registered locally without duplicating
       if (API_URL !== '/api' && session?.id) {
-        await fetch(`/api/sessions`, {
+        await authedFetch(`/api/sessions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
